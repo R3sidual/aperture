@@ -37,6 +37,10 @@ export default function App() {
   const [submitForm, setSubmitForm] = useState({ name:"", bio:"", influences:"", title:"", genre:"", statement:"", fileCount:0 });
   const [editForm, setEditForm]   = useState({ first:"", last:"", bio:"", website:"", instagram:"", lineage_node_id:"" });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [editingEssay, setEditingEssay] = useState(null);
+  const [essayEditForm, setEssayEditForm] = useState({ title:"", genre:"", statement:"", influences:"" });
   const [submissions, setSubmissions] = useState([]);
   const [signingIn, setSigningIn] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -143,15 +147,37 @@ export default function App() {
   const saveProfile = async () => {
     if (!user) return;
     setSavingProfile(true);
+    setSaveError("");
     const name = [editForm.first, editForm.last].filter(Boolean).join(" ");
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("users")
       .update({ name, bio: editForm.bio, website: editForm.website, instagram: editForm.instagram, lineage_node_id: editForm.lineage_node_id })
       .eq("id", user.id)
       .select()
       .single();
-    if (data) setProfile(data);
+    if (error) setSaveError(error.message);
+    if (data) { setProfile(data); setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 3000); }
     setSavingProfile(false);
+  };
+
+  // ── Edit existing essay ────────────────────────────────────
+  const openEditEssay = (essay) => {
+    setEssayEditForm({ title: essay.title, genre: essay.genre || "", statement: essay.statement || "", influences: essay.influences || "" });
+    setEditingEssay(essay);
+  };
+
+  const saveEssay = async () => {
+    if (!editingEssay) return;
+    const { data, error } = await supabase
+      .from("essays")
+      .update({ title: essayEditForm.title, genre: essayEditForm.genre, statement: essayEditForm.statement, influences: essayEditForm.influences })
+      .eq("id", editingEssay.id)
+      .select()
+      .single();
+    if (data) {
+      setSubmissions(s => s.map(e => e.id === data.id ? data : e));
+      setEditingEssay(null);
+    }
   };
 
   // ── Submit essay ────────────────────────────────────────────
@@ -205,7 +231,7 @@ export default function App() {
 
       {/* Pages */}
       {page === "main"      && <MainPage essays={MOCK_ESSAYS} saved={saved} onSave={toggleSave} onSubmit={openSubmit} onNav={showPage} />}
-      {page === "profile"   && <ProfilePage user={user} profile={profile} saved={saved} essays={MOCK_ESSAYS} submissions={submissions} profileTab={profileTab} setProfileTab={setProfileTab} editForm={editForm} setEditForm={setEditForm} saveProfile={saveProfile} savingProfile={savingProfile} doSignOut={doSignOut} openSubmit={openSubmit} onNav={showPage} />}
+      {page === "profile"   && <ProfilePage user={user} profile={profile} saved={saved} essays={MOCK_ESSAYS} submissions={submissions} editingEssay={editingEssay} essayEditForm={essayEditForm} setEssayEditForm={setEssayEditForm} openEditEssay={openEditEssay} saveEssay={saveEssay} setEditingEssay={setEditingEssay} profileTab={profileTab} setProfileTab={setProfileTab} editForm={editForm} setEditForm={setEditForm} saveProfile={saveProfile} savingProfile={savingProfile} saveError={saveError} saveSuccess={saveSuccess} doSignOut={doSignOut} openSubmit={openSubmit} onNav={showPage} />}
       {page === "about"     && <AboutPage onNav={showPage} />}
       {page === "guidelines"&& <GuidelinesPage onNav={showPage} openSubmit={openSubmit} />}
       {page === "editorial" && <EditorialPage onNav={showPage} />}
@@ -405,7 +431,7 @@ function EssayCard({ essay, large, saved, onSave }) {
   );
 }
 
-function ProfilePage({ user, profile, saved, essays, submissions, profileTab, setProfileTab, editForm, setEditForm, saveProfile, savingProfile, doSignOut, openSubmit, onNav }) {
+function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, essayEditForm, setEssayEditForm, openEditEssay, saveEssay, setEditingEssay, profileTab, setProfileTab, editForm, setEditForm, saveProfile, savingProfile, saveError, saveSuccess, doSignOut, openSubmit, onNav }) {
   const savedEssays = essays.filter(e => saved.includes(e.id));
   const name = profile?.name || user?.email || "—";
 
@@ -460,16 +486,42 @@ function ProfilePage({ user, profile, saved, essays, submissions, profileTab, se
               ? <div className="empty-state">No submissions yet.<p>Ready to share your work?</p></div>
               : <div className="essay-list">
                   {submissions.map(e => (
-                    <div className="essay-row" key={e.id}>
-                      <div className="essay-thumb-placeholder" />
-                      <div>
-                        <div className="essay-row-title">{e.title}</div>
-                        <div className="essay-row-meta">{e.genre} · Submitted {new Date(e.created_at).toLocaleDateString("en-GB", {month:"short", year:"numeric"})}</div>
+                    editingEssay?.id === e.id ? (
+                      <div className="essay-edit-panel" key={e.id}>
+                        <p className="essay-edit-label">Editing: {e.title}</p>
+                        <Field label="Title"><input value={essayEditForm.title} onChange={ev=>setEssayEditForm(f=>({...f,title:ev.target.value}))} /></Field>
+                        <Field label="Genre">
+                          <select value={essayEditForm.genre} onChange={ev=>setEssayEditForm(f=>({...f,genre:ev.target.value}))}>
+                            <option value="">Select…</option>
+                            {["Documentary","Landscape","Portrait","Street","Fine Art","Urban","Travel"].map(g=><option key={g}>{g}</option>)}
+                          </select>
+                        </Field>
+                        <Field label="Artist Statement"><textarea rows={4} value={essayEditForm.statement} onChange={ev=>setEssayEditForm(f=>({...f,statement:ev.target.value}))} /></Field>
+                        <Field label="Influences"><input value={essayEditForm.influences} onChange={ev=>setEssayEditForm(f=>({...f,influences:ev.target.value}))} /></Field>
+                        <div style={{display:"flex",gap:12,marginTop:4}}>
+                          <button className="btn-more" onClick={()=>setEditingEssay(null)}>Cancel</button>
+                          <button className="btn-primary" style={{flex:1}} onClick={saveEssay}>Save Changes</button>
+                        </div>
                       </div>
-                      <span className={`status-badge ${e.status === "published" ? "published" : e.status === "in_review" ? "review" : "draft"}`}>
-                        {e.status === "in_review" ? "In Review" : e.status.charAt(0).toUpperCase() + e.status.slice(1)}
-                      </span>
-                    </div>
+                    ) : (
+                      <div className="essay-row" key={e.id}>
+                        <div className="essay-thumb-placeholder" />
+                        <div>
+                          <div className="essay-row-title">{e.title}</div>
+                          <div className="essay-row-meta">{e.genre} · Submitted {new Date(e.created_at).toLocaleDateString("en-GB", {month:"short", year:"numeric"})}</div>
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:12}}>
+                          <span className={`status-badge ${e.status === "published" ? "published" : e.status === "in_review" ? "review" : "draft"}`}>
+                            {e.status === "in_review" ? "In Review" : e.status.charAt(0).toUpperCase() + e.status.slice(1)}
+                          </span>
+                          {(e.status === "draft" || e.status === "submitted") && (
+                            <button className="btn-edit-essay" onClick={()=>openEditEssay(e)} title="Edit">
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )
                   ))}
                 </div>
             }
@@ -494,6 +546,8 @@ function ProfilePage({ user, profile, saved, essays, submissions, profileTab, se
             <button className="btn-primary" style={{maxWidth:200}} onClick={saveProfile} disabled={savingProfile}>
               {savingProfile ? "Saving…" : "Save Changes"}
             </button>
+            {saveError && <p style={{fontFamily:"var(--f-mono)",fontSize:9,letterSpacing:".12em",color:"#b5441a",marginTop:12,padding:"10px 14px",background:"rgba(181,68,26,.06)",border:"1px solid rgba(181,68,26,.2)"}}>{saveError}</p>}
+            {saveSuccess && <p style={{fontFamily:"var(--f-mono)",fontSize:9,letterSpacing:".14em",textTransform:"uppercase",color:"var(--amber)",marginTop:12}}>Changes saved ✓</p>}
           </div>
         )}
       </div>
@@ -942,6 +996,10 @@ footer { border-top: 1px solid var(--line-2); padding: 32px var(--gutter); margi
 .faq-q { font-family: var(--f-serif); font-size: clamp(16px,1.3vw,19px); font-weight: 700; margin-bottom: 10px; line-height: 1.3; }
 .faq-a { font-size: clamp(15px,1.2vw,17px); color: var(--ink-3); line-height: 1.7; }
 .essay-thumb-placeholder { width: 72px; height: 52px; background: var(--paper-3); flex-shrink: 0; }
+.essay-edit-panel { padding: 24px; background: var(--paper-2); border-bottom: 1px solid var(--line-2); }
+.essay-edit-label { font-family: var(--f-mono); font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--amber); margin-bottom: 20px; }
+.btn-edit-essay { background: none; border: 1px solid var(--line-2); padding: 6px 8px; cursor: pointer; color: var(--muted); display: flex; align-items: center; transition: color .2s, border-color .2s; }
+.btn-edit-essay:hover { color: var(--ink); border-color: var(--ink); }
 .lineage-hint { font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; color: var(--muted); text-align: right; max-width: 200px; line-height: 1.5; }
 
 /* Archive empty state */
