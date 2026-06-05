@@ -37,6 +37,7 @@ export default function App() {
   const [submitForm, setSubmitForm] = useState({ name:"", bio:"", influences:"", title:"", genre:"", statement:"", fileCount:0 });
   const [editForm, setEditForm]   = useState({ first:"", last:"", bio:"", website:"", instagram:"", lineage_node_id:"" });
   const [savingProfile, setSavingProfile] = useState(false);
+  const [submissions, setSubmissions] = useState([]);
   const [signingIn, setSigningIn] = useState(false);
   const [authError, setAuthError] = useState("");
   const [signInForm, setSignInForm] = useState({ email:"", password:"" });
@@ -69,6 +70,7 @@ export default function App() {
         lineage_node_id: data.lineage_node_id || "",
       });
       fetchSaved(u.id);
+      fetchSubmissions(u.id);
     }
   };
 
@@ -78,6 +80,15 @@ export default function App() {
       .select("essay_id")
       .eq("user_id", userId);
     if (data) setSaved(data.map(r => r.essay_id));
+  };
+
+  const fetchSubmissions = async (userId) => {
+    const { data } = await supabase
+      .from("essays")
+      .select("id, title, genre, status, created_at")
+      .eq("photographer_id", userId)
+      .order("created_at", { ascending: false });
+    if (data) setSubmissions(data);
   };
 
   // ── Navigation ─────────────────────────────────────────────
@@ -147,7 +158,7 @@ export default function App() {
   const openSubmit = () => {
     if (!user) { setAuthModal(true); return; }
     setSubmitStep(1); setSubmitDone(false);
-    setSubmitForm({ name: profile?.name || "", bio: profile?.bio || "", influences:"", title:"", genre:"", statement:"", fileCount:0 });
+    setSubmitForm({ name: profile?.name || "", bio: profile?.bio || "", influences: profile?.influences || "", title:"", genre:"", statement:"", fileCount:0 });
     setSubmitModal(true);
   };
 
@@ -161,6 +172,7 @@ export default function App() {
       status: "submitted",
     });
     setSubmitDone(true);
+    if (user) fetchSubmissions(user.id);
   };
 
   // ── Render ─────────────────────────────────────────────────
@@ -193,7 +205,7 @@ export default function App() {
 
       {/* Pages */}
       {page === "main"      && <MainPage essays={MOCK_ESSAYS} saved={saved} onSave={toggleSave} onSubmit={openSubmit} onNav={showPage} />}
-      {page === "profile"   && <ProfilePage user={user} profile={profile} saved={saved} essays={MOCK_ESSAYS} profileTab={profileTab} setProfileTab={setProfileTab} editForm={editForm} setEditForm={setEditForm} saveProfile={saveProfile} savingProfile={savingProfile} doSignOut={doSignOut} openSubmit={openSubmit} onNav={showPage} />}
+      {page === "profile"   && <ProfilePage user={user} profile={profile} saved={saved} essays={MOCK_ESSAYS} submissions={submissions} profileTab={profileTab} setProfileTab={setProfileTab} editForm={editForm} setEditForm={setEditForm} saveProfile={saveProfile} savingProfile={savingProfile} doSignOut={doSignOut} openSubmit={openSubmit} onNav={showPage} />}
       {page === "about"     && <AboutPage onNav={showPage} />}
       {page === "guidelines"&& <GuidelinesPage onNav={showPage} openSubmit={openSubmit} />}
       {page === "editorial" && <EditorialPage onNav={showPage} />}
@@ -252,6 +264,7 @@ export default function App() {
               <Field label="Short Bio"><textarea rows={3} value={submitForm.bio} onChange={e=>setSubmitForm(f=>({...f,bio:e.target.value}))} placeholder="Documentary photographer based in Lisbon…" /></Field>
               <Field label={<>Key Influences <span className="field-note">Seeds your Lineage node →</span></>}>
                 <input value={submitForm.influences} onChange={e=>setSubmitForm(f=>({...f,influences:e.target.value}))} placeholder="e.g. Sebastião Salgado, Dorothea Lange" />
+                {submitForm.bio === "" && <p style={{fontFamily:"var(--f-mono)",fontSize:9,letterSpacing:".12em",color:"var(--muted)",marginTop:6}}>Update your bio in Edit Profile to pre-fill this form.</p>}
               </Field>
               <button className="btn-primary" onClick={()=>setSubmitStep(2)}>Continue</button>
             </>}
@@ -392,7 +405,7 @@ function EssayCard({ essay, large, saved, onSave }) {
   );
 }
 
-function ProfilePage({ user, profile, saved, essays, profileTab, setProfileTab, editForm, setEditForm, saveProfile, savingProfile, doSignOut, openSubmit, onNav }) {
+function ProfilePage({ user, profile, saved, essays, submissions, profileTab, setProfileTab, editForm, setEditForm, saveProfile, savingProfile, doSignOut, openSubmit, onNav }) {
   const savedEssays = essays.filter(e => saved.includes(e.id));
   const name = profile?.name || user?.email || "—";
 
@@ -406,11 +419,13 @@ function ProfilePage({ user, profile, saved, essays, profileTab, setProfileTab, 
             <p className="profile-bio">{profile?.bio || "No bio yet."}</p>
           </div>
           <div className="profile-hero-actions">
-            {profile?.lineage_node_id && (
-              <a href="https://lineage-two.vercel.app" target="_blank" rel="noreferrer" className="btn-lineage">
+            {profile?.lineage_node_id ? (
+              <a href={`https://lineage-two.vercel.app/?node=${profile.lineage_node_id}`} target="_blank" rel="noreferrer" className="btn-lineage">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2"/></svg>
                 View on Lineage
               </a>
+            ) : (
+              <span className="lineage-hint">Add your Lineage Node ID in Edit Profile to link your node</span>
             )}
             <button className="btn-signout" onClick={doSignOut}>Sign out</button>
           </div>
@@ -440,8 +455,24 @@ function ProfilePage({ user, profile, saved, essays, profileTab, setProfileTab, 
         )}
 
         {profileTab === "submitted" && (
-          <div className="essay-list">
-            <div className="empty-state">No submissions yet.<p>Ready to share your work?</p></div>
+          <div>
+            {submissions.length === 0
+              ? <div className="empty-state">No submissions yet.<p>Ready to share your work?</p></div>
+              : <div className="essay-list">
+                  {submissions.map(e => (
+                    <div className="essay-row" key={e.id}>
+                      <div className="essay-thumb-placeholder" />
+                      <div>
+                        <div className="essay-row-title">{e.title}</div>
+                        <div className="essay-row-meta">{e.genre} · Submitted {new Date(e.created_at).toLocaleDateString("en-GB", {month:"short", year:"numeric"})}</div>
+                      </div>
+                      <span className={`status-badge ${e.status === "published" ? "published" : e.status === "in_review" ? "review" : "draft"}`}>
+                        {e.status === "in_review" ? "In Review" : e.status.charAt(0).toUpperCase() + e.status.slice(1)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+            }
             <div style={{marginTop:24}}><button className="btn-submit" onClick={openSubmit}>+ Submit New Essay</button></div>
           </div>
         )}
@@ -910,6 +941,8 @@ footer { border-top: 1px solid var(--line-2); padding: 32px var(--gutter); margi
 .faq-item:first-child { border-top: 1px solid var(--line-2); }
 .faq-q { font-family: var(--f-serif); font-size: clamp(16px,1.3vw,19px); font-weight: 700; margin-bottom: 10px; line-height: 1.3; }
 .faq-a { font-size: clamp(15px,1.2vw,17px); color: var(--ink-3); line-height: 1.7; }
+.essay-thumb-placeholder { width: 72px; height: 52px; background: var(--paper-3); flex-shrink: 0; }
+.lineage-hint { font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; color: var(--muted); text-align: right; max-width: 200px; line-height: 1.5; }
 
 /* Archive empty state */
 .archive-empty { padding: clamp(64px,10vh,120px) 0; text-align: center; border: 1px solid var(--line-2); }
