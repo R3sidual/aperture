@@ -177,6 +177,7 @@ export default function App() {
   };
 
   const uploadPhotos = async (files, essayId) => {
+    if (!user) return;
     setUploadingPhotos(true);
     setPhotoError("");
     const existing = await supabase.from("photos").select("sequence_order").eq("essay_id", essayId).order("sequence_order", { ascending: false }).limit(1);
@@ -184,7 +185,7 @@ export default function App() {
 
     for (const file of Array.from(files)) {
       const ext = file.name.split(".").pop();
-      const path = `${essayId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const path = `${user.id}/${essayId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error: upErr } = await supabase.storage.from("essay-photos").upload(path, file);
       if (upErr) { setPhotoError(upErr.message); continue; }
       const { data: urlData } = supabase.storage.from("essay-photos").getPublicUrl(path);
