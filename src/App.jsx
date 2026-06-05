@@ -1,122 +1,944 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState, useEffect, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-function App() {
-  const [count, setCount] = useState(0)
+// ─── Supabase ────────────────────────────────────────────────
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
+// ─── Mock essay data (replace with DB queries once essays exist) ──
+const MOCK_ESSAYS = [
+  { id: "1", title: "Shadows of the Altiplano", genre: "Documentary", photographer: "Amara Diallo", photo_count: 34, year: 2026, img: "https://images.unsplash.com/photo-1447752875215-b2761acf3d9a?w=900&q=75" },
+  { id: "2", title: "Fjordland Silence",         genre: "Landscape",    photographer: "Erik Vatn",    photo_count: 21, year: 2026, img: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=700&q=75" },
+  { id: "3", title: "Night Market, Chengdu",     genre: "Urban",        photographer: "Yuki Tanaka",  photo_count: 18, year: 2026, img: "https://images.unsplash.com/photo-1520962880247-cfaf541c8724?w=700&q=75" },
+  { id: "4", title: "Women of the Namib",        genre: "Portrait",     photographer: "Sena Owusu",   photo_count: 27, year: 2025, img: "https://images.unsplash.com/photo-1504701954957-2010ec3bcec1?w=700&q=75" },
+  { id: "5", title: "Geometries of Loss",        genre: "Fine Art",     photographer: "Pilar Reyes",  photo_count: 15, year: 2025, img: "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?w=700&q=75" },
+  { id: "6", title: "A River Divides",           genre: "Documentary",  photographer: "Jonas Müller", photo_count: 29, year: 2026, img: "https://images.unsplash.com/photo-1551009175-8a68da93d5f9?w=700&q=75" },
+  { id: "7", title: "Monsoon Season, Kolkata",   genre: "Street",       photographer: "Priya Nair",   photo_count: 22, year: 2025, img: "https://images.unsplash.com/photo-1519125323398-675f0ddb6308?w=700&q=75" },
+  { id: "8", title: "High Atlas, Autumn",        genre: "Landscape",    photographer: "Hassan El Fassi", photo_count: 31, year: 2026, img: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=700&q=75" },
+  { id: "9", title: "Estuary at Dusk",           genre: "Landscape",    photographer: "Cécile Morin", photo_count: 19, year: 2025, img: "https://images.unsplash.com/photo-1521295121783-8a321d551ad2?w=700&q=75" },
+];
+
+const STATIC_PAGES = ["about", "guidelines", "editorial", "faq", "contact"];
+
+// ─── App ─────────────────────────────────────────────────────
+export default function App() {
+  const [page, setPage]           = useState("main");   // main | profile | about | guidelines | editorial | faq | contact
+  const [user, setUser]           = useState(null);     // Supabase user
+  const [profile, setProfile]     = useState(null);     // users table row
+  const [saved, setSaved]         = useState([]);       // saved_essays rows
+  const [authModal, setAuthModal] = useState(false);
+  const [submitModal, setSubmitModal] = useState(false);
+  const [authTab, setAuthTab]     = useState("signin");
+  const [profileTab, setProfileTab] = useState("saved");
+  const [submitStep, setSubmitStep] = useState(1);
+  const [submitDone, setSubmitDone] = useState(false);
+  const [submitForm, setSubmitForm] = useState({ name:"", bio:"", influences:"", title:"", genre:"", statement:"", fileCount:0 });
+  const [editForm, setEditForm]   = useState({ first:"", last:"", bio:"", website:"", instagram:"", lineage_node_id:"" });
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [signInForm, setSignInForm] = useState({ email:"", password:"" });
+  const [signUpForm, setSignUpForm] = useState({ first:"", last:"", email:"", password:"" });
+
+  // ── Auth listener ──────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) handleUserSession(session.user);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (session?.user) handleUserSession(session.user);
+      else { setUser(null); setProfile(null); setSaved([]); }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleUserSession = async (u) => {
+    setUser(u);
+    const { data } = await supabase.from("users").select("*").eq("id", u.id).single();
+    if (data) {
+      setProfile(data);
+      const nameParts = (data.name || "").split(" ");
+      setEditForm({
+        first: nameParts[0] || "",
+        last:  nameParts.slice(1).join(" ") || "",
+        bio:   data.bio || "",
+        website: data.website || "",
+        instagram: data.instagram || "",
+        lineage_node_id: data.lineage_node_id || "",
+      });
+      fetchSaved(u.id);
+    }
+  };
+
+  const fetchSaved = async (userId) => {
+    const { data } = await supabase
+      .from("saved_essays")
+      .select("essay_id")
+      .eq("user_id", userId);
+    if (data) setSaved(data.map(r => r.essay_id));
+  };
+
+  // ── Navigation ─────────────────────────────────────────────
+  const showPage = useCallback((p) => {
+    if (p === "profile" && !user) { setAuthModal(true); return; }
+    setPage(p);
+    window.scrollTo(0, 0);
+  }, [user]);
+
+  // ── Auth ───────────────────────────────────────────────────
+  const doSignIn = async () => {
+    setAuthError(""); setSigningIn(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: signInForm.email, password: signInForm.password
+    });
+    setSigningIn(false);
+    if (error) setAuthError(error.message);
+    else { setAuthModal(false); }
+  };
+
+  const doSignUp = async () => {
+    setAuthError(""); setSigningIn(true);
+    const name = [signUpForm.first, signUpForm.last].filter(Boolean).join(" ");
+    const { error } = await supabase.auth.signUp({
+      email: signUpForm.email,
+      password: signUpForm.password,
+      options: { data: { name } }
+    });
+    setSigningIn(false);
+    if (error) setAuthError(error.message);
+    else { setAuthModal(false); setTimeout(() => showPage("profile"), 300); }
+  };
+
+  const doSignOut = async () => {
+    await supabase.auth.signOut();
+    showPage("main");
+  };
+
+  // ── Save essay ──────────────────────────────────────────────
+  const toggleSave = async (essayId) => {
+    if (!user) { setAuthModal(true); return; }
+    if (saved.includes(essayId)) {
+      await supabase.from("saved_essays").delete().eq("user_id", user.id).eq("essay_id", essayId);
+      setSaved(s => s.filter(id => id !== essayId));
+    } else {
+      await supabase.from("saved_essays").insert({ user_id: user.id, essay_id: essayId });
+      setSaved(s => [...s, essayId]);
+    }
+  };
+
+  // ── Save profile ────────────────────────────────────────────
+  const saveProfile = async () => {
+    if (!user) return;
+    setSavingProfile(true);
+    const name = [editForm.first, editForm.last].filter(Boolean).join(" ");
+    const { data } = await supabase
+      .from("users")
+      .update({ name, bio: editForm.bio, website: editForm.website, instagram: editForm.instagram, lineage_node_id: editForm.lineage_node_id })
+      .eq("id", user.id)
+      .select()
+      .single();
+    if (data) setProfile(data);
+    setSavingProfile(false);
+  };
+
+  // ── Submit essay ────────────────────────────────────────────
+  const openSubmit = () => {
+    if (!user) { setAuthModal(true); return; }
+    setSubmitStep(1); setSubmitDone(false);
+    setSubmitForm({ name: profile?.name || "", bio: profile?.bio || "", influences:"", title:"", genre:"", statement:"", fileCount:0 });
+    setSubmitModal(true);
+  };
+
+  const doSubmit = async () => {
+    await supabase.from("essays").insert({
+      photographer_id: user.id,
+      title: submitForm.title,
+      genre: submitForm.genre,
+      statement: submitForm.statement,
+      influences: submitForm.influences,
+      status: "submitted",
+    });
+    setSubmitDone(true);
+  };
+
+  // ── Render ─────────────────────────────────────────────────
   return (
     <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+      <style>{CSS}</style>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+      {/* Header */}
+      <header>
+        <div className="header-inner">
+          <a className="logo" href="#" onClick={e => { e.preventDefault(); showPage("main"); }}>
+            Aperture<span className="logo-dot" />
+          </a>
+          <div className="header-right">
+            <span className="header-meta">Issue 01 · Open Submissions</span>
+            <button className="btn-submit" onClick={openSubmit}>Submit Work</button>
+            <button
+              className={`btn-account${user ? " logged-in" : ""}`}
+              onClick={() => user ? showPage("profile") : setAuthModal(true)}
+              title={user ? "My Profile" : "Sign in"}
+            >
+              {user
+                ? <span className="avatar-initial">{(profile?.name || user.email || "?")[0].toUpperCase()}</span>
+                : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+              }
+            </button>
+          </div>
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+      </header>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
+      {/* Pages */}
+      {page === "main"      && <MainPage essays={MOCK_ESSAYS} saved={saved} onSave={toggleSave} onSubmit={openSubmit} onNav={showPage} />}
+      {page === "profile"   && <ProfilePage user={user} profile={profile} saved={saved} essays={MOCK_ESSAYS} profileTab={profileTab} setProfileTab={setProfileTab} editForm={editForm} setEditForm={setEditForm} saveProfile={saveProfile} savingProfile={savingProfile} doSignOut={doSignOut} openSubmit={openSubmit} onNav={showPage} />}
+      {page === "about"     && <AboutPage onNav={showPage} />}
+      {page === "guidelines"&& <GuidelinesPage onNav={showPage} openSubmit={openSubmit} />}
+      {page === "editorial" && <EditorialPage onNav={showPage} />}
+      {page === "faq"       && <FaqPage onNav={showPage} />}
+      {page === "contact"   && <ContactPage onNav={showPage} />}
+
+      {/* Auth modal */}
+      {authModal && (
+        <Modal onClose={() => { setAuthModal(false); setAuthError(""); }}>
+          <h2 className="modal-title">Welcome back.</h2>
+          <div className="modal-tabs">
+            <button className={`modal-tab${authTab==="signin"?" active":""}`} onClick={() => { setAuthTab("signin"); setAuthError(""); }}>Sign In</button>
+            <button className={`modal-tab${authTab==="signup"?" active":""}`} onClick={() => { setAuthTab("signup"); setAuthError(""); }}>Create Account</button>
+          </div>
+          {authError && <p className="auth-error">{authError}</p>}
+          {authTab === "signin" ? (
+            <>
+              <Field label="Email"><input type="email" value={signInForm.email} onChange={e => setSignInForm(f=>({...f,email:e.target.value}))} placeholder="you@example.com" onKeyDown={e=>e.key==="Enter"&&doSignIn()} /></Field>
+              <Field label="Password"><input type="password" value={signInForm.password} onChange={e => setSignInForm(f=>({...f,password:e.target.value}))} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&doSignIn()} /></Field>
+              <button className="btn-primary" onClick={doSignIn} disabled={signingIn}>{signingIn ? "Signing in…" : "Sign In"}</button>
+              <p className="modal-alt">No account? <button onClick={() => setAuthTab("signup")}>Create one</button></p>
+            </>
+          ) : (
+            <>
+              <div className="two-col">
+                <Field label="First Name"><input type="text" value={signUpForm.first} onChange={e=>setSignUpForm(f=>({...f,first:e.target.value}))} placeholder="Maria" /></Field>
+                <Field label="Last Name"><input type="text" value={signUpForm.last} onChange={e=>setSignUpForm(f=>({...f,last:e.target.value}))} placeholder="Solís" /></Field>
+              </div>
+              <Field label="Email"><input type="email" value={signUpForm.email} onChange={e=>setSignUpForm(f=>({...f,email:e.target.value}))} placeholder="you@example.com" /></Field>
+              <Field label="Password"><input type="password" value={signUpForm.password} onChange={e=>setSignUpForm(f=>({...f,password:e.target.value}))} placeholder="Choose a password" /></Field>
+              <button className="btn-primary" onClick={doSignUp} disabled={signingIn}>{signingIn ? "Creating…" : "Create Account"}</button>
+              <p className="modal-alt">Already have one? <button onClick={() => setAuthTab("signin")}>Sign in</button></p>
+            </>
+          )}
+        </Modal>
+      )}
+
+      {/* Submit modal */}
+      {submitModal && (
+        <Modal onClose={() => setSubmitModal(false)} wide>
+          <h2 className="modal-title">Submit an Essay</h2>
+          {!submitDone && (
+            <div className="submit-steps">
+              {[1,2,3,4].map(n => (
+                <>
+                  <div key={n} className={`step-dot${submitStep===n?" active":submitStep>n?" done":""}`}>{submitStep>n?"✓":n}</div>
+                  {n < 4 && <div className="step-line" key={"l"+n}/>}
+                </>
+              ))}
+            </div>
+          )}
+          {!submitDone ? <>
+            {submitStep===1 && <>
+              <h3 className="step-title">Your Profile</h3>
+              <Field label="Full Name"><input value={submitForm.name} onChange={e=>setSubmitForm(f=>({...f,name:e.target.value}))} placeholder="Maria Solís" /></Field>
+              <Field label="Short Bio"><textarea rows={3} value={submitForm.bio} onChange={e=>setSubmitForm(f=>({...f,bio:e.target.value}))} placeholder="Documentary photographer based in Lisbon…" /></Field>
+              <Field label={<>Key Influences <span className="field-note">Seeds your Lineage node →</span></>}>
+                <input value={submitForm.influences} onChange={e=>setSubmitForm(f=>({...f,influences:e.target.value}))} placeholder="e.g. Sebastião Salgado, Dorothea Lange" />
+              </Field>
+              <button className="btn-primary" onClick={()=>setSubmitStep(2)}>Continue</button>
+            </>}
+            {submitStep===2 && <>
+              <h3 className="step-title">Essay Details</h3>
+              <Field label="Essay Title"><input value={submitForm.title} onChange={e=>setSubmitForm(f=>({...f,title:e.target.value}))} placeholder="The Light After Leaving" /></Field>
+              <Field label="Genre">
+                <select value={submitForm.genre} onChange={e=>setSubmitForm(f=>({...f,genre:e.target.value}))}>
+                  <option value="">Select a genre…</option>
+                  {["Documentary","Landscape","Portrait","Street","Fine Art","Urban","Travel"].map(g=><option key={g}>{g}</option>)}
+                </select>
+              </Field>
+              <Field label="Artist Statement"><textarea rows={4} value={submitForm.statement} onChange={e=>setSubmitForm(f=>({...f,statement:e.target.value}))} placeholder="What is this essay about? What drew you to this subject?" /></Field>
+              <div className="step-nav">
+                <button className="btn-more" onClick={()=>setSubmitStep(1)}>← Back</button>
+                <button className="btn-primary" onClick={()=>setSubmitStep(3)}>Continue</button>
+              </div>
+            </>}
+            {submitStep===3 && <>
+              <h3 className="step-title">Upload Photos</h3>
+              <div className="upload-zone" onClick={()=>document.getElementById("file-input").click()}>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                <p>Tap to select photos</p>
+                <input id="file-input" type="file" multiple accept="image/*" style={{display:"none"}} onChange={e=>setSubmitForm(f=>({...f,fileCount:e.target.files.length}))} />
+              </div>
+              {submitForm.fileCount > 0 && <p className="file-count">{submitForm.fileCount} photo{submitForm.fileCount!==1?"s":""} selected</p>}
+              <div className="step-nav">
+                <button className="btn-more" onClick={()=>setSubmitStep(2)}>← Back</button>
+                <button className="btn-primary" onClick={()=>setSubmitStep(4)}>Continue</button>
+              </div>
+            </>}
+            {submitStep===4 && <>
+              <h3 className="step-title">Review & Submit</h3>
+              {[["Name",submitForm.name],["Title",submitForm.title],["Genre",submitForm.genre],["Influences",submitForm.influences],["Photos",submitForm.fileCount+" selected"]].map(([k,v])=>(
+                <div className="review-row" key={k}>
+                  <span className="review-key">{k}</span>
+                  <span className="review-val">{v||"—"}</span>
+                </div>
+              ))}
+              <div className="step-nav">
+                <button className="btn-more" onClick={()=>setSubmitStep(3)}>← Back</button>
+                <button className="btn-primary" onClick={doSubmit}>Submit Essay</button>
+              </div>
+            </>}
+          </> : (
+            <div className="success-state">
+              <div className="success-check">◦</div>
+              <h3>Essay Submitted</h3>
+              <p>We'll review your work and be in touch within 2–3 weeks.</p>
+              <button className="btn-primary" style={{marginTop:24}} onClick={()=>setSubmitModal(false)}>Back to Aperture</button>
+            </div>
+          )}
+        </Modal>
+      )}
     </>
-  )
+  );
 }
 
-export default App
+// ─── Page components ──────────────────────────────────────────
+
+function MainPage({ essays, saved, onSave, onSubmit, onNav }) {
+  return (
+    <main className="main-page">
+      {/* Hero */}
+      <section className="hero">
+        <div className="hero-inner">
+          <div className="hero-left">
+            <p className="hero-kicker">Now Open — Issue 01</p>
+            <h1 className="hero-title">A home for<br /><em>the essay.</em></h1>
+            <p className="hero-desc">Aperture is an editorial journal for long-form photo essays. Submissions are open. The first essays are coming.</p>
+            <div className="hero-actions">
+              <a href="#" className="btn-read"><span className="btn-read-rule"/>{" "}Read the Essay</a>
+              <span className="hero-byline">Submit your work — we read everything.</span>
+            </div>
+          </div>
+          <div className="hero-right">
+            <div className="hero-img-wrap">
+              <img src="https://images.unsplash.com/photo-1452587925148-ce544e77e70d?w=900&q=80" alt="" />
+            </div>
+            <div className="hero-img-caption">
+              <span>Aperture Journal</span><span>Issue 01, 2026</span>
+            </div>
+          </div>
+        </div>
+        <div className="hero-stats">
+          <div className="hero-stats-inner">
+            <div className="stat-item"><span className="stat-num">0</span><span className="stat-label">Essays Published</span></div>
+            <div className="stat-item"><span className="stat-num">2026</span><span className="stat-label">First Issue</span></div>
+            <div className="stat-item"><span className="stat-num">Open</span><span className="stat-label">Submissions</span></div>
+          </div>
+        </div>
+      </section>
+
+      {/* Archive */}
+      <section className="essays-section">
+        <div className="section-head">
+          <div><p className="section-label">All Essays</p><h2 className="section-title">The Archive</h2></div>
+          <span className="section-count">Issue 01</span>
+        </div>
+        <div className="essays-wrap">
+          <div className="archive-empty">
+            <p className="archive-empty-title">The first essays are on their way.</p>
+            <p className="archive-empty-sub">Aperture is open for submissions. If you have a long-form photo essay to share, we'd like to read it.</p>
+            <button className="btn-read" onClick={onSubmit} style={{marginTop:24}}>
+              <span className="btn-read-rule"/>Submit Your Work
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <Footer onNav={onNav} />
+    </main>
+  );
+}
+
+function EssayCard({ essay, large, saved, onSave }) {
+  return (
+    <div className={`card${large?" card--large":""}`}>
+      <div className="card-img-wrap">
+        <img className="card-img" src={essay.img} alt="" loading="lazy" />
+      </div>
+      <div className="card-body">
+        <p className="card-genre">{essay.genre}</p>
+        <h3 className="card-title">{essay.title}</h3>
+        <div className="card-meta">
+          <span className="card-author">{essay.photographer}</span>
+          <span className="card-sep">·</span>
+          <span>{essay.photo_count} photographs</span>
+        </div>
+        <div className="card-actions">
+          <a href="#" className="card-link"><span className="card-link-rule"/>Read Essay</a>
+          <button className={`card-save${saved?" saved":""}`} onClick={()=>onSave(essay.id)} title={saved?"Saved":"Save essay"}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill={saved?"currentColor":"none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfilePage({ user, profile, saved, essays, profileTab, setProfileTab, editForm, setEditForm, saveProfile, savingProfile, doSignOut, openSubmit, onNav }) {
+  const savedEssays = essays.filter(e => saved.includes(e.id));
+  const name = profile?.name || user?.email || "—";
+
+  return (
+    <div className="profile-page">
+      <div className="profile-hero">
+        <div className="profile-hero-inner">
+          <div className="profile-avatar">{name[0].toUpperCase()}</div>
+          <div>
+            <h1 className="profile-name">{name}</h1>
+            <p className="profile-bio">{profile?.bio || "No bio yet."}</p>
+          </div>
+          <div className="profile-hero-actions">
+            {profile?.lineage_node_id && (
+              <a href="https://lineage-two.vercel.app" target="_blank" rel="noreferrer" className="btn-lineage">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2"/></svg>
+                View on Lineage
+              </a>
+            )}
+            <button className="btn-signout" onClick={doSignOut}>Sign out</button>
+          </div>
+        </div>
+        <div className="profile-tabs">
+          {["saved","submitted","edit"].map(t => (
+            <button key={t} className={`profile-tab${profileTab===t?" active":""}`} onClick={()=>setProfileTab(t)}>
+              {t === "saved" ? "Saved Essays" : t === "submitted" ? "Submitted" : "Edit Profile"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="profile-content">
+        {profileTab === "saved" && (
+          savedEssays.length === 0
+            ? <div className="empty-state">No saved essays yet.<p>Bookmark essays to find them here.</p></div>
+            : <div className="essay-list">
+                {savedEssays.map(e => (
+                  <div className="essay-row" key={e.id}>
+                    <img className="essay-thumb" src={e.img} alt="" />
+                    <div><div className="essay-row-title">{e.title}</div><div className="essay-row-meta">{e.genre} · {e.photographer}</div></div>
+                    <span className="status-badge published">Saved</span>
+                  </div>
+                ))}
+              </div>
+        )}
+
+        {profileTab === "submitted" && (
+          <div className="essay-list">
+            <div className="empty-state">No submissions yet.<p>Ready to share your work?</p></div>
+            <div style={{marginTop:24}}><button className="btn-submit" onClick={openSubmit}>+ Submit New Essay</button></div>
+          </div>
+        )}
+
+        {profileTab === "edit" && (
+          <div className="edit-form">
+            <div className="two-col">
+              <Field label="First Name"><input value={editForm.first} onChange={e=>setEditForm(f=>({...f,first:e.target.value}))} placeholder="Maria" /></Field>
+              <Field label="Last Name"><input value={editForm.last} onChange={e=>setEditForm(f=>({...f,last:e.target.value}))} placeholder="Solís" /></Field>
+            </div>
+            <Field label="Bio"><textarea rows={3} value={editForm.bio} onChange={e=>setEditForm(f=>({...f,bio:e.target.value}))} placeholder="Documentary photographer based in Lisbon…" /></Field>
+            <div className="two-col">
+              <Field label="Website"><input value={editForm.website} onChange={e=>setEditForm(f=>({...f,website:e.target.value}))} placeholder="https://yoursite.com" /></Field>
+              <Field label="Instagram"><input value={editForm.instagram} onChange={e=>setEditForm(f=>({...f,instagram:e.target.value}))} placeholder="@handle" /></Field>
+            </div>
+            <Field label={<>Lineage Node ID <span className="field-note">Links your profile to the graph</span></>}>
+              <input value={editForm.lineage_node_id} onChange={e=>setEditForm(f=>({...f,lineage_node_id:e.target.value}))} placeholder="e.g. maria-solis" />
+            </Field>
+            <button className="btn-primary" style={{maxWidth:200}} onClick={saveProfile} disabled={savingProfile}>
+              {savingProfile ? "Saving…" : "Save Changes"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Static pages ─────────────────────────────────────────────
+
+function StaticPage({ children, label, title, onNav }) {
+  return (
+    <div className="static-page">
+      <div className="static-hero">
+        <div className="static-hero-inner">
+          <button className="back-btn" onClick={() => onNav("main")}>← Back</button>
+          <p className="section-label">{label}</p>
+          <h1 className="static-title" dangerouslySetInnerHTML={{__html: title}} />
+        </div>
+      </div>
+      {children}
+      <Footer onNav={onNav} />
+    </div>
+  );
+}
+
+function AboutPage({ onNav }) {
+  return (
+    <StaticPage label="About" title="Photography deserves a more<br/><em>thoughtful home.</em>" onNav={onNav}>
+      <div className="static-body">
+        <div className="static-col static-col--wide">
+          <p className="static-lead">Aperture is an editorial journal for long-form photo essays. Not a feed. Not a portfolio host. A place where the photograph and the idea behind it are given equal weight.</p>
+          <p>We started from a simple observation: the dominant platforms for sharing photography are built around velocity — the next image before the current one has been absorbed. Aperture is built around the opposite impulse. Each essay is a sustained act of looking, and this platform is designed to support that.</p>
+          <p>Photo essays published here are selected by a small editorial team. They span documentary, landscape, portrait, street, and fine art — united not by genre but by a commitment to sequencing, context, and authorial intent.</p>
+          <p>Aperture is a companion to <a href="https://lineage-two.vercel.app" target="_blank" rel="noreferrer" className="static-link">Lineage</a>, a project that maps documented influence relationships between photographers across generations. Where Lineage looks backward — tracing who shaped whom — Aperture looks at photography being made now.</p>
+          <p>We are an independent, non-commercial project. No advertisements, no algorithmic feeds, no engagement metrics. The essays are the product. Everything else is secondary.</p>
+        </div>
+        <aside className="static-col static-col--narrow">
+          {[["Founded","2026"],["Essays Published","0"],["Submissions","Open"],["Companion Project","Lineage →"]].map(([k,v])=>(
+            <div className="aside-block" key={k}><p className="aside-label">{k}</p><p className="aside-val">{k==="Companion Project"?<a href="https://lineage-two.vercel.app" target="_blank" rel="noreferrer" className="static-link">{v}</a>:v}</p></div>
+          ))}
+        </aside>
+      </div>
+    </StaticPage>
+  );
+}
+
+function GuidelinesPage({ onNav, openSubmit }) {
+  return (
+    <StaticPage label="Submissions" title="Submission<br/><em>Guidelines</em>" onNav={onNav}>
+      <div className="static-body">
+        <div className="static-col static-col--wide">
+          <p className="static-lead">Aperture accepts unsolicited submissions from photographers at any stage of their practice. We read everything.</p>
+          <h2 className="static-h2">What We Publish</h2>
+          <p>Long-form photo essays — sequences of 12 to 60 images organised around a coherent subject, question, or experience. The work should have been made with editorial intent: the images should speak to each other, not just coexist.</p>
+          <h2 className="static-h2">Technical Requirements</h2>
+          <ul className="static-list">
+            {["12–60 photographs per essay","JPEG or TIFF, minimum 2000px on the long edge","sRGB colour profile","Images numbered in intended sequence","One designated cover photograph","No watermarks, frames, or text overlays"].map(i=><li key={i}>{i}</li>)}
+          </ul>
+          <h2 className="static-h2">What to Include</h2>
+          <ul className="static-list">
+            {["A brief photographer bio (100–200 words)","An artist statement (150–400 words)","Basic caption information: location, year","Key influences — this seeds your Lineage node"].map(i=><li key={i}>{i}</li>)}
+          </ul>
+          <h2 className="static-h2">Rights</h2>
+          <p>You retain full copyright of your work. By submitting, you grant Aperture a non-exclusive licence to publish the essay on this platform.</p>
+        </div>
+        <aside className="static-col static-col--narrow">
+          {[["Response Time","2–3 weeks"],["Images per Essay","12 – 60"],["Submission Fee","None"],["Rights Retained","100% yours"]].map(([k,v])=>(
+            <div className="aside-block" key={k}><p className="aside-label">{k}</p><p className="aside-val">{v}</p></div>
+          ))}
+          <div className="aside-block"><button className="btn-primary" style={{width:"100%",marginTop:8}} onClick={openSubmit}>Submit Your Work</button></div>
+        </aside>
+      </div>
+    </StaticPage>
+  );
+}
+
+function EditorialPage({ onNav }) {
+  const sections = [
+    ["On Selection","We select work on the strength of its sequencing, its internal coherence, and the clarity of its authorial intent. Technical excellence matters, but it is not sufficient. We have published work made on smartphones and declined work made on medium format."],
+    ["On Editing","We edit sequences collaboratively with photographers. We do not impose a house style. Edits are always proposed, never imposed. No image is removed or reordered without the photographer's agreement."],
+    ["On Captions and Context","We require accurate caption information — location and year at minimum. We do not fabricate context. We believe photography's relationship to truth is complicated, and we are not interested in pretending otherwise."],
+    ["On Post-Processing","We do not publish work in which elements have been added, removed, or substantially repositioned through post-processing in documentary or street genres. Fine art work is assessed case by case."],
+    ["On Corrections","We correct factual errors promptly and transparently. If an error is found after publication, we note the correction at the bottom of the essay with a date. We do not silently edit published work."],
+    ["On Independence","Aperture accepts no advertising and has no commercial relationships with gear manufacturers, galleries, or agencies. Editorial decisions are made without commercial consideration."],
+  ];
+  return (
+    <StaticPage label="Editorial" title="Editorial<br/><em>Standards</em>" onNav={onNav}>
+      <div className="static-body">
+        <div className="static-col static-col--wide">
+          <p className="static-lead">These are the principles that guide every editorial decision we make — from what we accept to how we write about the work we publish.</p>
+          {sections.map(([h,p])=><><h2 className="static-h2" key={h}>{h}</h2><p key={p}>{p}</p></>)}
+        </div>
+        <aside className="static-col static-col--narrow">
+          {[["Advertising","None, ever"],["Editorial Independence","Complete"],["Corrections Policy","Transparent & dated"],["Post-Processing","Disclosed in statement"]].map(([k,v])=>(
+            <div className="aside-block" key={k}><p className="aside-label">{k}</p><p className="aside-val">{v}</p></div>
+          ))}
+        </aside>
+      </div>
+    </StaticPage>
+  );
+}
+
+function FaqPage({ onNav }) {
+  const faqs = [
+    ["Do I need to be a professional photographer to submit?","No. We assess the work, not the résumé. Students, hobbyists, and emerging photographers submit regularly and have been published."],
+    ["Can I submit work that has been published elsewhere?","Yes, with disclosure. Please note in your artist statement where the work has previously appeared."],
+    ["What is the Lineage connection?","Lineage maps influence relationships between photographers as an interactive graph. When you submit to Aperture, your influences field is used to build or connect your node in Lineage, linking your essays to photography's broader history."],
+    ["Do you accept colour and black-and-white work?","Yes to both, and mixed essays too. The relationship between image and intent matters more than the choice of palette."],
+    ["What happens if my submission is declined?","You'll receive a response within three weeks. Declined work can be resubmitted after significant revision."],
+    ["Can I remove my work after it's been published?","Yes. Contact us and we will unpublish the essay within 48 hours."],
+    ["Is there a fee to submit or to read?","No fees of any kind. Submission is free. Reading is free."],
+  ];
+  return (
+    <StaticPage label="FAQ" title="Frequently<br/><em>Asked Questions</em>" onNav={onNav}>
+      <div className="static-body">
+        <div className="static-col static-col--wide">
+          <div className="faq-list">
+            {faqs.map(([q,a])=>(
+              <div className="faq-item" key={q}>
+                <h3 className="faq-q">{q}</h3>
+                <p className="faq-a">{a}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <aside className="static-col static-col--narrow">
+          <div className="aside-block">
+            <p className="aside-label">Still have a question?</p>
+            <p className="aside-val" style={{fontSize:15,marginTop:4,lineHeight:1.5}}>Write to us — we read everything.</p>
+            <button className="btn-submit" style={{marginTop:16,width:"100%",padding:10}} onClick={()=>onNav("contact")}>Contact Us</button>
+          </div>
+        </aside>
+      </div>
+    </StaticPage>
+  );
+}
+
+function ContactPage({ onNav }) {
+  const [sent, setSent] = useState(false);
+  return (
+    <StaticPage label="Contact" title="Get in<br/><em>Touch</em>" onNav={onNav}>
+      <div className="static-body">
+        <div className="static-col static-col--wide">
+          <p className="static-lead">We read every message. Response time is typically two to five working days.</p>
+          <h2 className="static-h2">Write to Us</h2>
+          <Field label="Your Name"><input type="text" placeholder="Maria Solís" /></Field>
+          <Field label="Email"><input type="email" placeholder="you@example.com" /></Field>
+          <Field label="Subject">
+            <select>
+              {["Submission query","Technical issue","Editorial question","Press or collaboration","Something else"].map(o=><option key={o}>{o}</option>)}
+            </select>
+          </Field>
+          <Field label="Message"><textarea rows={5} placeholder="Your message…" /></Field>
+          {!sent
+            ? <button className="btn-primary" style={{maxWidth:200}} onClick={()=>setSent(true)}>Send Message</button>
+            : <p style={{fontFamily:"var(--f-mono)",fontSize:10,letterSpacing:".14em",textTransform:"uppercase",color:"var(--amber)"}}>Message sent ✓</p>
+          }
+          <div style={{marginTop:48,paddingTop:28,borderTop:"1px solid var(--line-2)"}}>
+            <h2 className="static-h2">Direct Contact</h2>
+            <p>For urgent matters: <a href="mailto:hello@aperture.journal" className="static-link">hello@aperture.journal</a></p>
+            <p style={{marginTop:12}}>For Lineage questions: <a href="https://lineage-two.vercel.app" target="_blank" rel="noreferrer" className="static-link">lineage-two.vercel.app →</a></p>
+          </div>
+        </div>
+        <aside className="static-col static-col--narrow">
+          {[["Response Time","2–5 working days"],["Submissions","Via the submit form only"],["Press","hello@aperture.journal"]].map(([k,v])=>(
+            <div className="aside-block" key={k}><p className="aside-label">{k}</p><p className="aside-val">{v}</p></div>
+          ))}
+        </aside>
+      </div>
+    </StaticPage>
+  );
+}
+
+// ─── Shared components ────────────────────────────────────────
+
+function Modal({ children, onClose, wide }) {
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    const onKey = e => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = ""; window.removeEventListener("keydown", onKey); };
+  }, [onClose]);
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className={`modal${wide?" modal--wide":""}`}>
+        <button className="modal-close" onClick={onClose}>×</button>
+        <div className="modal-body">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div className="field">
+      <label>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Footer({ onNav }) {
+  return (
+    <footer>
+      <div className="footer-inner">
+        <span className="footer-logo">Aperture</span>
+        <div className="footer-links">
+          {[["about","About"],["guidelines","Guidelines"],["editorial","Editorial Standards"],["faq","FAQ"],["contact","Contact"]].map(([p,l])=>(
+            <a key={p} href="#" className="footer-link" onClick={e=>{e.preventDefault();onNav(p);}}>{l}</a>
+          ))}
+          <a href="https://lineage-two.vercel.app" target="_blank" rel="noreferrer" className="footer-link">Lineage →</a>
+        </div>
+        <span className="footer-copy">© 2026 Aperture Journal</span>
+      </div>
+    </footer>
+  );
+}
+
+// ─── CSS ──────────────────────────────────────────────────────
+const CSS = `
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --paper:   #f5f2ec;
+  --paper-2: #ede9e0;
+  --paper-3: #e0dbd0;
+  --ink:     #1a1814;
+  --ink-2:   #2e2b26;
+  --ink-3:   #4a4640;
+  --ink-4:   #6b6660;
+  --amber:   #9c7a3c;
+  --green:   #4a7c59;
+  --line:    rgba(26,24,20,0.10);
+  --line-2:  rgba(26,24,20,0.18);
+  --muted:   rgba(26,24,20,0.42);
+  --f-serif: "Libre Baskerville", Georgia, serif;
+  --f-body:  "EB Garamond", Georgia, serif;
+  --f-mono:  "Courier Prime", "Courier New", monospace;
+  --max-w:   1280px;
+  --gutter:  clamp(24px, 5vw, 64px);
+  --header-h:58px;
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=Courier+Prime:ital,wght@0,400;1,400&display=swap');
+
+html { scroll-behavior: smooth; color-scheme: light; }
+body { background: var(--paper); color: var(--ink); font-family: var(--f-body); font-size: 18px; line-height: 1.6; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+
+/* Header */
+header { position: fixed; top: 0; left: 0; right: 0; height: var(--header-h); z-index: 200; background: var(--paper); border-bottom: 1px solid var(--line-2); display: flex; align-items: center; padding: 0 var(--gutter); }
+.header-inner { width: 100%; max-width: var(--max-w); margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+.logo { font-family: var(--f-serif); font-size: 15px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; color: var(--ink); text-decoration: none; }
+.logo-dot { display: inline-block; width: 5px; height: 5px; background: var(--amber); border-radius: 50%; margin-left: 3px; vertical-align: middle; position: relative; top: -1px; }
+.header-right { display: flex; align-items: center; gap: 20px; }
+.header-meta { font-family: var(--f-mono); font-size: 10px; letter-spacing: .12em; color: var(--muted); }
+.btn-submit { font-family: var(--f-mono); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink); background: none; border: 1px solid var(--line-2); padding: 8px 18px; cursor: pointer; transition: border-color .2s; }
+.btn-submit:hover { border-color: var(--ink); }
+.btn-account { background: none; border: 1px solid var(--line-2); width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--ink-3); transition: border-color .2s, background .2s; flex-shrink: 0; }
+.btn-account:hover { border-color: var(--ink); }
+.btn-account.logged-in { background: var(--amber); border-color: var(--amber); color: var(--paper); }
+.avatar-initial { font-family: var(--f-serif); font-size: 13px; font-weight: 700; }
+
+/* Hero */
+.main-page { padding-top: var(--header-h); }
+.hero { border-bottom: 1px solid var(--line-2); }
+.hero-inner { max-width: var(--max-w); margin: 0 auto; padding: clamp(64px,10vh,120px) var(--gutter) 0; display: grid; grid-template-columns: 1fr 1fr; gap: clamp(40px,6vw,96px); align-items: end; }
+.hero-left { padding-bottom: clamp(40px,6vh,72px); }
+.hero-kicker { font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 28px; display: flex; align-items: center; gap: 10px; }
+.hero-kicker::before { content:""; display:block; width:24px; height:1px; background:var(--amber); }
+.hero-title { font-family: var(--f-serif); font-size: clamp(40px,6vw,82px); font-weight: 400; line-height: 1.08; letter-spacing: -.01em; }
+.hero-title em { font-style: italic; color: var(--ink-3); }
+.hero-desc { margin-top: 28px; font-size: clamp(17px,1.5vw,20px); font-style: italic; color: var(--ink-3); line-height: 1.55; max-width: 440px; }
+.hero-actions { margin-top: 40px; display: flex; align-items: center; gap: 28px; }
+.btn-read { font-family: var(--f-mono); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink); text-decoration: none; display: flex; align-items: center; gap: 10px; transition: color .2s; }
+.btn-read:hover { color: var(--amber); }
+.btn-read-rule { display:block; width:32px; height:1px; background:currentColor; transition:width .3s; }
+.btn-read:hover .btn-read-rule { width: 52px; }
+.hero-byline { font-family: var(--f-mono); font-size: 10px; letter-spacing: .12em; color: var(--muted); }
+.hero-right { opacity: 1; }
+.hero-img-wrap { overflow: hidden; aspect-ratio: 3/4; }
+.hero-img-wrap img { width: 100%; height: 100%; object-fit: cover; filter: grayscale(30%); transition: filter .6s, transform .6s; display: block; }
+.hero-img-wrap:hover img { filter: grayscale(0%); transform: scale(1.02); }
+.hero-img-caption { margin-top: 12px; font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; }
+.hero-stats { border-top: 1px solid var(--line-2); margin-top: clamp(40px,6vh,64px); }
+.hero-stats-inner { max-width: var(--max-w); margin: 0 auto; padding: 0 var(--gutter); display: grid; grid-template-columns: repeat(3,1fr); }
+.stat-item { padding: 20px 0; border-right: 1px solid var(--line-2); display: flex; align-items: baseline; gap: 12px; }
+.stat-item:last-child { border-right: none; }
+.stat-item:not(:first-child) { padding-left: clamp(20px,3vw,40px); }
+.stat-num { font-family: var(--f-serif); font-size: clamp(22px,2.5vw,32px); font-weight: 700; line-height: 1; }
+.stat-label { font-family: var(--f-mono); font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+
+/* Essays grid */
+.essays-section { padding: clamp(72px,10vh,120px) 0; }
+.section-head { max-width: var(--max-w); margin: 0 auto; padding: 0 var(--gutter); display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 48px; border-bottom: 1px solid var(--line-2); padding-bottom: 20px; }
+.section-label { font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); }
+.section-title { font-family: var(--f-serif); font-size: clamp(22px,3vw,34px); font-weight: 400; letter-spacing: -.01em; margin-top: 6px; }
+.section-count { font-family: var(--f-mono); font-size: 10px; letter-spacing: .12em; color: var(--muted); }
+.essays-wrap { max-width: var(--max-w); margin: 0 auto; padding: 0 var(--gutter); }
+.featured-row { display: grid; grid-template-columns: 2fr 1fr; gap: 1px; background: var(--line-2); margin-bottom: 1px; border: 1px solid var(--line-2); }
+.stacked-col { display: flex; flex-direction: column; gap: 1px; background: var(--line-2); }
+.standard-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 1px; background: var(--line-2); border: 1px solid var(--line-2); }
+
+/* Card */
+.card { overflow: hidden; background: var(--paper); display: flex; flex-direction: column; }
+.card-img-wrap { overflow: hidden; aspect-ratio: 4/3; flex-shrink: 0; }
+.card--large .card-img-wrap { aspect-ratio: 4/3; }
+.card-img { width: 100%; height: 100%; object-fit: cover; display: block; filter: grayscale(85%); transition: filter .65s, transform .65s; }
+.card:hover .card-img { filter: grayscale(0%); transform: scale(1.025); }
+.card-body { padding: 20px 22px 24px; flex: 1; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.card--large .card-body { padding: 24px 28px 28px; }
+.card-genre { font-family: var(--f-mono); font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 10px; }
+.card-title { font-family: var(--f-serif); font-size: clamp(16px,1.4vw,20px); font-weight: 400; line-height: 1.25; flex: 1; }
+.card--large .card-title { font-size: clamp(20px,2vw,28px); }
+.card-meta { margin-top: 16px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.card-author { color: var(--ink-3); font-style: italic; font-family: var(--f-body); font-size: 11px; letter-spacing: .03em; text-transform: none; }
+.card-sep { opacity: .4; }
+.card-actions { display: flex; align-items: center; gap: 16px; margin-top: 14px; }
+.card-link { font-family: var(--f-mono); font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-4); text-decoration: none; display: flex; align-items: center; gap: 8px; opacity: 0; transform: translateY(4px); transition: opacity .3s, transform .3s, color .2s; }
+.card:hover .card-link { opacity: 1; transform: translateY(0); color: var(--amber); }
+.card-link-rule { display: block; width: 20px; height: 1px; background: currentColor; transition: width .3s; flex-shrink: 0; }
+.card:hover .card-link-rule { width: 32px; }
+.card-save { background: none; border: none; cursor: pointer; padding: 2px; color: var(--muted); display: flex; align-items: center; opacity: 0; transform: translateY(4px); transition: opacity .3s, transform .3s, color .2s; }
+.card:hover .card-save { opacity: 1; transform: translateY(0); }
+.card-save:hover, .card-save.saved { color: var(--amber); opacity: 1; transform: translateY(0); }
+
+/* Load more */
+.load-more-row { margin-top: 48px; display: flex; align-items: center; gap: 20px; }
+.load-rule { flex: 1; height: 1px; background: var(--line-2); }
+.btn-more { font-family: var(--f-mono); font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); background: none; border: 1px solid var(--line-2); padding: 10px 24px; cursor: pointer; transition: color .2s, border-color .2s; }
+.btn-more:hover { color: var(--ink); border-color: var(--ink-3); }
+
+/* Footer */
+footer { border-top: 1px solid var(--line-2); padding: 32px var(--gutter); margin-top: clamp(72px,10vh,120px); }
+.footer-inner { max-width: var(--max-w); margin: 0 auto; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
+.footer-logo { font-family: var(--f-serif); font-size: 12px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--ink-4); }
+.footer-links { display: flex; gap: 24px; flex-wrap: wrap; }
+.footer-link { font-family: var(--f-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); text-decoration: none; transition: color .2s; }
+.footer-link:hover { color: var(--ink); }
+.footer-copy { font-family: var(--f-mono); font-size: 9px; letter-spacing: .1em; color: var(--muted); opacity: .6; }
+
+/* Profile */
+.profile-page { padding-top: var(--header-h); min-height: 100vh; }
+.profile-hero { border-bottom: 1px solid var(--line-2); }
+.profile-hero-inner { max-width: var(--max-w); margin: 0 auto; padding: clamp(48px,8vh,96px) var(--gutter) 28px; display: grid; grid-template-columns: auto 1fr auto; align-items: start; gap: 24px; }
+.profile-avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--paper-3); border: 1px solid var(--line-2); display: flex; align-items: center; justify-content: center; font-family: var(--f-serif); font-size: 22px; font-weight: 700; color: var(--ink-3); flex-shrink: 0; }
+.profile-name { font-family: var(--f-serif); font-size: clamp(26px,4vw,44px); font-weight: 400; }
+.profile-bio { margin-top: 4px; font-style: italic; color: var(--ink-3); font-size: 16px; }
+.profile-hero-actions { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.btn-lineage { font-family: var(--f-mono); font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--amber); text-decoration: none; border: 1px solid var(--amber); padding: 8px 14px; display: flex; align-items: center; gap: 7px; transition: background .2s, color .2s; white-space: nowrap; }
+.btn-lineage:hover { background: var(--amber); color: var(--paper); }
+.btn-signout { font-family: var(--f-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); background: none; border: none; cursor: pointer; padding: 0; transition: color .2s; }
+.btn-signout:hover { color: var(--ink); }
+.profile-tabs { max-width: var(--max-w); margin: 0 auto; padding: 0 var(--gutter); display: flex; border-bottom: 1px solid var(--line-2); }
+.profile-tab { font-family: var(--f-mono); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; padding: 18px 0; margin-right: 28px; cursor: pointer; transition: color .2s, border-color .2s; position: relative; bottom: -1px; }
+.profile-tab.active { color: var(--ink); border-bottom-color: var(--ink); }
+.profile-content { max-width: var(--max-w); margin: 0 auto; padding: clamp(32px,5vh,56px) var(--gutter); }
+.essay-list { display: flex; flex-direction: column; border: 1px solid var(--line-2); }
+.essay-row { display: grid; grid-template-columns: 72px 1fr auto; align-items: center; gap: 20px; background: var(--paper); padding: 16px 20px; border-bottom: 1px solid var(--line); transition: background .2s; }
+.essay-row:last-child { border-bottom: none; }
+.essay-row:hover { background: var(--paper-2); }
+.essay-thumb { width: 72px; height: 52px; object-fit: cover; filter: grayscale(60%); display: block; }
+.essay-row-title { font-family: var(--f-serif); font-size: 17px; }
+.essay-row-meta { font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-top: 4px; }
+.status-badge { font-family: var(--f-mono); font-size: 8px; letter-spacing: .16em; text-transform: uppercase; padding: 4px 10px; white-space: nowrap; }
+.status-badge.published { background: rgba(74,124,89,.12); color: var(--green); }
+.status-badge.review    { background: rgba(156,122,60,.12); color: var(--amber); }
+.status-badge.draft     { background: var(--paper-3); color: var(--ink-4); }
+.empty-state { text-align: center; padding: 64px 0; font-style: italic; color: var(--muted); font-size: 17px; }
+.empty-state p { margin-top: 8px; font-family: var(--f-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); opacity: .6; }
+.edit-form { max-width: 600px; }
+
+/* Modal */
+.modal-backdrop { position: fixed; inset: 0; z-index: 500; background: rgba(245,242,236,.8); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: var(--gutter); }
+.modal { background: var(--paper); border: 1px solid var(--line-2); width: 100%; max-width: 440px; position: relative; max-height: 90vh; overflow-y: auto; }
+.modal--wide { max-width: 520px; }
+.modal-close { position: absolute; top: 16px; right: 18px; background: none; border: none; cursor: pointer; color: var(--muted); font-size: 22px; line-height: 1; transition: color .2s; z-index: 1; }
+.modal-close:hover { color: var(--ink); }
+.modal-body { padding: 32px; }
+.modal-title { font-family: var(--f-serif); font-size: 22px; font-weight: 400; margin-bottom: 24px; }
+.modal-tabs { display: flex; border-bottom: 1px solid var(--line-2); margin-bottom: 24px; }
+.modal-tab { font-family: var(--f-mono); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); background: none; border: none; border-bottom: 2px solid transparent; padding: 10px 0; margin-right: 24px; cursor: pointer; transition: color .2s, border-color .2s; position: relative; bottom: -1px; }
+.modal-tab.active { color: var(--ink); border-bottom-color: var(--ink); }
+.modal-alt { margin-top: 16px; text-align: center; font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; color: var(--muted); }
+.modal-alt button { background: none; border: none; cursor: pointer; color: var(--amber); font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; text-decoration: underline; padding: 0; }
+.auth-error { font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; color: #b5441a; margin-bottom: 16px; padding: 10px 14px; background: rgba(181,68,26,.06); border: 1px solid rgba(181,68,26,.2); }
+
+/* Form */
+.field { margin-bottom: 18px; }
+.field label { display: block; font-family: var(--f-mono); font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.field input, .field textarea, .field select { width: 100%; background: var(--paper-2); border: 1px solid var(--line-2); padding: 11px 14px; font-family: var(--f-body); font-size: 16px; color: var(--ink); outline: none; transition: border-color .2s; appearance: none; -webkit-appearance: none; resize: vertical; }
+.field input:focus, .field textarea:focus, .field select:focus { border-color: var(--amber); }
+.field-note { color: var(--amber); font-family: var(--f-mono); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.btn-primary { width: 100%; font-family: var(--f-mono); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--paper); background: var(--ink); border: none; padding: 14px; cursor: pointer; transition: background .2s; }
+.btn-primary:hover { background: var(--ink-2); }
+.btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Submit wizard */
+.submit-steps { display: flex; align-items: center; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line-2); }
+.step-dot { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line-2); background: var(--paper); display: flex; align-items: center; justify-content: center; font-family: var(--f-mono); font-size: 9px; color: var(--muted); flex-shrink: 0; transition: all .2s; }
+.step-dot.active { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.step-dot.done   { background: var(--amber); border-color: var(--amber); color: var(--paper); }
+.step-line { flex: 1; height: 1px; background: var(--line-2); }
+.step-title { font-family: var(--f-serif); font-size: 20px; font-weight: 400; margin-bottom: 20px; }
+.step-nav { display: flex; gap: 12px; margin-top: 4px; }
+.step-nav .btn-more { flex: 1; }
+.step-nav .btn-primary { flex: 2; }
+.upload-zone { border: 1px dashed var(--line-2); padding: 36px; text-align: center; cursor: pointer; transition: border-color .2s; background: var(--paper-2); }
+.upload-zone:hover { border-color: var(--amber); }
+.upload-zone p { font-family: var(--f-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-top: 10px; }
+.file-count { font-family: var(--f-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--amber); margin-top: 12px; text-align: center; }
+.review-row { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.review-row:last-of-type { border-bottom: none; margin-bottom: 16px; }
+.review-key { font-family: var(--f-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.review-val { font-family: var(--f-body); font-size: 16px; color: var(--ink-2); text-align: right; max-width: 240px; }
+.success-state { text-align: center; padding: 16px 0; }
+.success-check { font-size: 36px; margin-bottom: 16px; }
+.success-state h3 { font-family: var(--f-serif); font-size: 22px; font-weight: 400; margin-bottom: 10px; }
+.success-state p { font-style: italic; color: var(--ink-3); }
+
+/* Static pages */
+.static-page { padding-top: var(--header-h); min-height: 100vh; }
+.back-btn { font-family: var(--f-mono); font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); background: none; border: none; cursor: pointer; padding: 0; margin-bottom: 32px; transition: color .2s; }
+.back-btn:hover { color: var(--ink); }
+.static-hero { border-bottom: 1px solid var(--line-2); }
+.static-hero-inner { max-width: var(--max-w); margin: 0 auto; padding: clamp(48px,8vh,96px) var(--gutter) clamp(32px,5vh,56px); }
+.static-title { font-family: var(--f-serif); font-size: clamp(36px,5.5vw,72px); font-weight: 400; line-height: 1.08; letter-spacing: -.01em; margin-top: 16px; }
+.static-title em { font-style: italic; color: var(--ink-3); }
+.static-body { max-width: var(--max-w); margin: 0 auto; padding: clamp(40px,6vh,72px) var(--gutter) clamp(72px,10vh,120px); display: grid; grid-template-columns: 1fr 280px; gap: clamp(40px,6vw,96px); align-items: start; }
+.static-col--wide p { margin-bottom: 18px; font-size: clamp(16px,1.3vw,19px); line-height: 1.7; }
+.static-lead { font-size: clamp(18px,1.6vw,22px) !important; font-style: italic; color: var(--ink-2); margin-bottom: 32px !important; padding-bottom: 32px; border-bottom: 1px solid var(--line-2); }
+.static-h2 { font-family: var(--f-serif); font-size: clamp(16px,1.4vw,20px); font-weight: 700; margin-top: 32px; margin-bottom: 12px; }
+.static-list { list-style: none; margin-bottom: 18px; }
+.static-list li { font-size: clamp(16px,1.3vw,19px); line-height: 1.7; padding: 6px 0 6px 18px; border-bottom: 1px solid var(--line); position: relative; }
+.static-list li::before { content: "—"; position: absolute; left: 0; color: var(--amber); }
+.static-link { color: var(--amber); text-decoration: none; border-bottom: 1px solid currentColor; transition: color .2s; }
+.static-link:hover { color: var(--amber-2, #b8923f); }
+.static-col--narrow { position: sticky; top: calc(var(--header-h) + 32px); }
+.aside-block { padding: 14px 0; border-bottom: 1px solid var(--line-2); }
+.aside-block:first-child { border-top: 1px solid var(--line-2); }
+.aside-label { font-family: var(--f-mono); font-size: 9px; letter-spacing: .18em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.aside-val { font-family: var(--f-serif); font-size: 17px; font-weight: 400; line-height: 1.3; }
+.faq-list { display: flex; flex-direction: column; }
+.faq-item { padding: 26px 0; border-bottom: 1px solid var(--line-2); }
+.faq-item:first-child { border-top: 1px solid var(--line-2); }
+.faq-q { font-family: var(--f-serif); font-size: clamp(16px,1.3vw,19px); font-weight: 700; margin-bottom: 10px; line-height: 1.3; }
+.faq-a { font-size: clamp(15px,1.2vw,17px); color: var(--ink-3); line-height: 1.7; }
+
+/* Archive empty state */
+.archive-empty { padding: clamp(64px,10vh,120px) 0; text-align: center; border: 1px solid var(--line-2); }
+.archive-empty-title { font-family: var(--f-serif); font-size: clamp(20px,2.5vw,28px); font-weight: 400; color: var(--ink); margin-bottom: 16px; }
+.archive-empty-sub { font-family: var(--f-body); font-size: clamp(15px,1.3vw,18px); font-style: italic; color: var(--ink-3); max-width: 440px; margin: 0 auto; line-height: 1.6; }
+
+/* Responsive */
+@media (max-width: 960px) {
+  .hero-inner { grid-template-columns: 1fr; }
+  .hero-right { display: none; }
+  .featured-row { grid-template-columns: 1fr; }
+  .standard-row { grid-template-columns: 1fr 1fr; }
+  .profile-hero-inner { grid-template-columns: auto 1fr; }
+  .profile-lineage-link { display: none; }
+  .static-body { grid-template-columns: 1fr; }
+  .static-col--narrow { position: static; border-top: 1px solid var(--line-2); padding-top: 28px; }
+  .aside-block:first-child { border-top: none; }
+  .two-col { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .standard-row { grid-template-columns: 1fr; }
+  .hero-stats-inner { grid-template-columns: 1fr 1fr; }
+  .hero-stats-inner .stat-item:nth-child(3) { display: none; }
+  .header-meta { display: none; }
+  .essay-row { grid-template-columns: 56px 1fr auto; gap: 12px; }
+  .footer-inner { flex-direction: column; align-items: flex-start; gap: 20px; }
+  .footer-links { flex-wrap: wrap; gap: 16px; }
+  .footer-copy { display: none; }
+  .profile-hero-inner { grid-template-columns: 1fr; }
+  .profile-hero-actions { flex-direction: row; align-items: center; }
+}
+`;
