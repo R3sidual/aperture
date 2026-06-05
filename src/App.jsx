@@ -41,6 +41,9 @@ export default function App() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [editingEssay, setEditingEssay] = useState(null);
   const [essayEditForm, setEssayEditForm] = useState({ title:"", genre:"", statement:"", influences:"" });
+  const [essayPhotos, setEssayPhotos] = useState([]);   // photos for the essay being edited
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [photoError, setPhotoError] = useState("");
   const [submissions, setSubmissions] = useState([]);
   const [signingIn, setSigningIn] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -161,9 +164,66 @@ export default function App() {
   };
 
   // ── Edit existing essay ────────────────────────────────────
-  const openEditEssay = (essay) => {
+  const openEditEssay = async (essay) => {
     setEssayEditForm({ title: essay.title, genre: essay.genre || "", statement: essay.statement || "", influences: essay.influences || "" });
     setEditingEssay(essay);
+    setPhotoError("");
+    const { data } = await supabase
+      .from("photos")
+      .select("*")
+      .eq("essay_id", essay.id)
+      .order("sequence_order");
+    setEssayPhotos(data || []);
+  };
+
+  const uploadPhotos = async (files, essayId) => {
+    setUploadingPhotos(true);
+    setPhotoError("");
+    const existing = await supabase.from("photos").select("sequence_order").eq("essay_id", essayId).order("sequence_order", { ascending: false }).limit(1);
+    let nextOrder = (existing.data?.[0]?.sequence_order || 0) + 1;
+
+    for (const file of Array.from(files)) {
+      const ext = file.name.split(".").pop();
+      const path = `${essayId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error: upErr } = await supabase.storage.from("essay-photos").upload(path, file);
+      if (upErr) { setPhotoError(upErr.message); continue; }
+      const { data: urlData } = supabase.storage.from("essay-photos").getPublicUrl(path);
+      await supabase.from("photos").insert({
+        essay_id: essayId,
+        storage_url: path,
+        display_url: urlData.publicUrl,
+        sequence_order: nextOrder++,
+        is_cover: nextOrder === 2, // first uploaded becomes cover
+      });
+    }
+    // Refresh photos
+    const { data } = await supabase.from("photos").select("*").eq("essay_id", essayId).order("sequence_order");
+    setEssayPhotos(data || []);
+    setUploadingPhotos(false);
+  };
+
+  const deletePhoto = async (photo) => {
+    await supabase.storage.from("essay-photos").remove([photo.storage_url]);
+    await supabase.from("photos").delete().eq("id", photo.id);
+    setEssayPhotos(p => p.filter(x => x.id !== photo.id));
+  };
+
+  const setCover = async (photo) => {
+    // Unset all covers for this essay, then set this one
+    await supabase.from("photos").update({ is_cover: false }).eq("essay_id", photo.essay_id);
+    await supabase.from("photos").update({ is_cover: true }).eq("id", photo.id);
+    setEssayPhotos(p => p.map(x => ({ ...x, is_cover: x.id === photo.id })));
+  };
+
+  const movePhoto = async (photo, direction) => {
+    const idx = essayPhotos.findIndex(p => p.id === photo.id);
+    const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= essayPhotos.length) return;
+    const swap = essayPhotos[swapIdx];
+    await supabase.from("photos").update({ sequence_order: swap.sequence_order }).eq("id", photo.id);
+    await supabase.from("photos").update({ sequence_order: photo.sequence_order }).eq("id", swap.id);
+    const { data } = await supabase.from("photos").select("*").eq("essay_id", photo.essay_id).order("sequence_order");
+    setEssayPhotos(data || []);
   };
 
   const saveEssay = async () => {
@@ -231,7 +291,7 @@ export default function App() {
 
       {/* Pages */}
       {page === "main"      && <MainPage essays={MOCK_ESSAYS} saved={saved} onSave={toggleSave} onSubmit={openSubmit} onNav={showPage} />}
-      {page === "profile"   && <ProfilePage user={user} profile={profile} saved={saved} essays={MOCK_ESSAYS} submissions={submissions} editingEssay={editingEssay} essayEditForm={essayEditForm} setEssayEditForm={setEssayEditForm} openEditEssay={openEditEssay} saveEssay={saveEssay} setEditingEssay={setEditingEssay} profileTab={profileTab} setProfileTab={setProfileTab} editForm={editForm} setEditForm={setEditForm} saveProfile={saveProfile} savingProfile={savingProfile} saveError={saveError} saveSuccess={saveSuccess} doSignOut={doSignOut} openSubmit={openSubmit} onNav={showPage} />}
+      {page === "profile"   && <ProfilePage user={user} profile={profile} saved={saved} essays={MOCK_ESSAYS} submissions={submissions} editingEssay={editingEssay} essayEditForm={essayEditForm} setEssayEditForm={setEssayEditForm} openEditEssay={openEditEssay} saveEssay={saveEssay} setEditingEssay={setEditingEssay} essayPhotos={essayPhotos} uploadPhotos={uploadPhotos} deletePhoto={deletePhoto} setCover={setCover} movePhoto={movePhoto} uploadingPhotos={uploadingPhotos} photoError={photoError} profileTab={profileTab} setProfileTab={setProfileTab} editForm={editForm} setEditForm={setEditForm} saveProfile={saveProfile} savingProfile={savingProfile} saveError={saveError} saveSuccess={saveSuccess} doSignOut={doSignOut} openSubmit={openSubmit} onNav={showPage} />}
       {page === "about"     && <AboutPage onNav={showPage} />}
       {page === "guidelines"&& <GuidelinesPage onNav={showPage} openSubmit={openSubmit} />}
       {page === "editorial" && <EditorialPage onNav={showPage} />}
@@ -431,7 +491,7 @@ function EssayCard({ essay, large, saved, onSave }) {
   );
 }
 
-function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, essayEditForm, setEssayEditForm, openEditEssay, saveEssay, setEditingEssay, profileTab, setProfileTab, editForm, setEditForm, saveProfile, savingProfile, saveError, saveSuccess, doSignOut, openSubmit, onNav }) {
+function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, essayEditForm, setEssayEditForm, openEditEssay, saveEssay, setEditingEssay, essayPhotos, uploadPhotos, deletePhoto, setCover, movePhoto, uploadingPhotos, photoError, profileTab, setProfileTab, editForm, setEditForm, saveProfile, savingProfile, saveError, saveSuccess, doSignOut, openSubmit, onNav }) {
   const savedEssays = essays.filter(e => saved.includes(e.id));
   const name = profile?.name || user?.email || "—";
 
@@ -488,19 +548,60 @@ function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, 
                   {submissions.map(e => (
                     editingEssay?.id === e.id ? (
                       <div className="essay-edit-panel" key={e.id}>
-                        <p className="essay-edit-label">Editing: {e.title}</p>
-                        <Field label="Title"><input value={essayEditForm.title} onChange={ev=>setEssayEditForm(f=>({...f,title:ev.target.value}))} /></Field>
-                        <Field label="Genre">
-                          <select value={essayEditForm.genre} onChange={ev=>setEssayEditForm(f=>({...f,genre:ev.target.value}))}>
-                            <option value="">Select…</option>
-                            {["Documentary","Landscape","Portrait","Street","Fine Art","Urban","Travel"].map(g=><option key={g}>{g}</option>)}
-                          </select>
-                        </Field>
-                        <Field label="Artist Statement"><textarea rows={4} value={essayEditForm.statement} onChange={ev=>setEssayEditForm(f=>({...f,statement:ev.target.value}))} /></Field>
-                        <Field label="Influences"><input value={essayEditForm.influences} onChange={ev=>setEssayEditForm(f=>({...f,influences:ev.target.value}))} /></Field>
-                        <div style={{display:"flex",gap:12,marginTop:4}}>
-                          <button className="btn-more" onClick={()=>setEditingEssay(null)}>Cancel</button>
-                          <button className="btn-primary" style={{flex:1}} onClick={saveEssay}>Save Changes</button>
+                        <div className="essay-edit-header">
+                          <p className="essay-edit-label">Editing: {e.title}</p>
+                          <button className="btn-edit-close" onClick={()=>setEditingEssay(null)}>← Done</button>
+                        </div>
+
+                        {/* Essay details */}
+                        <div className="essay-edit-section">
+                          <p className="essay-edit-section-title">Details</p>
+                          <Field label="Title"><input value={essayEditForm.title} onChange={ev=>setEssayEditForm(f=>({...f,title:ev.target.value}))} /></Field>
+                          <div className="two-col">
+                            <Field label="Genre">
+                              <select value={essayEditForm.genre} onChange={ev=>setEssayEditForm(f=>({...f,genre:ev.target.value}))}>
+                                <option value="">Select…</option>
+                                {["Documentary","Landscape","Portrait","Street","Fine Art","Urban","Travel"].map(g=><option key={g}>{g}</option>)}
+                              </select>
+                            </Field>
+                            <Field label="Influences"><input value={essayEditForm.influences} onChange={ev=>setEssayEditForm(f=>({...f,influences:ev.target.value}))} /></Field>
+                          </div>
+                          <Field label="Artist Statement"><textarea rows={3} value={essayEditForm.statement} onChange={ev=>setEssayEditForm(f=>({...f,statement:ev.target.value}))} /></Field>
+                          <button className="btn-primary" style={{maxWidth:180}} onClick={saveEssay}>Save Details</button>
+                        </div>
+
+                        {/* Photo management */}
+                        <div className="essay-edit-section">
+                          <p className="essay-edit-section-title">Photos ({essayPhotos.length})</p>
+
+                          {photoError && <p className="photo-error">{photoError}</p>}
+
+                          {/* Upload zone */}
+                          <div className="upload-zone-sm" onClick={()=>document.getElementById(`photo-upload-${e.id}`).click()}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            <span>{uploadingPhotos ? "Uploading…" : "Add Photos"}</span>
+                            <input id={`photo-upload-${e.id}`} type="file" multiple accept="image/*" style={{display:"none"}}
+                              onChange={ev => !uploadingPhotos && uploadPhotos(ev.target.files, e.id)} />
+                          </div>
+
+                          {/* Photo grid */}
+                          {essayPhotos.length > 0 && (
+                            <div className="photo-grid">
+                              {essayPhotos.map((photo, idx) => (
+                                <div className={`photo-tile${photo.is_cover ? " photo-tile--cover" : ""}`} key={photo.id}>
+                                  <img src={photo.display_url || photo.storage_url} alt="" />
+                                  {photo.is_cover && <span className="cover-badge">Cover</span>}
+                                  <div className="photo-tile-actions">
+                                    <button title="Move up" onClick={()=>movePhoto(photo,"up")} disabled={idx===0}>↑</button>
+                                    <button title="Move down" onClick={()=>movePhoto(photo,"down")} disabled={idx===essayPhotos.length-1}>↓</button>
+                                    {!photo.is_cover && <button title="Set as cover" onClick={()=>setCover(photo)}>⊙</button>}
+                                    <button title="Delete" className="photo-delete" onClick={()=>{ if(window.confirm("Delete this photo?")) deletePhoto(photo); }}>×</button>
+                                  </div>
+                                  <span className="photo-num">{idx+1}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ) : (
@@ -1000,6 +1101,28 @@ footer { border-top: 1px solid var(--line-2); padding: 32px var(--gutter); margi
 .essay-edit-label { font-family: var(--f-mono); font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--amber); margin-bottom: 20px; }
 .btn-edit-essay { background: none; border: 1px solid var(--line-2); padding: 6px 8px; cursor: pointer; color: var(--muted); display: flex; align-items: center; transition: color .2s, border-color .2s; }
 .btn-edit-essay:hover { color: var(--ink); border-color: var(--ink); }
+.essay-edit-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.btn-edit-close { font-family: var(--f-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); background: none; border: none; cursor: pointer; transition: color .2s; }
+.btn-edit-close:hover { color: var(--ink); }
+.essay-edit-section { padding: 24px 0; border-top: 1px solid var(--line-2); }
+.essay-edit-section:first-of-type { border-top: none; padding-top: 0; }
+.essay-edit-section-title { font-family: var(--f-mono); font-size: 9px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 20px; }
+.upload-zone-sm { display: flex; align-items: center; gap: 10px; border: 1px dashed var(--line-2); padding: 14px 18px; cursor: pointer; margin-bottom: 20px; background: var(--paper-2); transition: border-color .2s; font-family: var(--f-mono); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.upload-zone-sm:hover { border-color: var(--amber); color: var(--amber); }
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.photo-tile { position: relative; aspect-ratio: 1; overflow: hidden; background: var(--paper-3); }
+.photo-tile img { width: 100%; height: 100%; object-fit: cover; display: block; filter: grayscale(20%); transition: filter .3s; }
+.photo-tile:hover img { filter: grayscale(0%); }
+.photo-tile--cover { outline: 2px solid var(--amber); }
+.cover-badge { position: absolute; top: 6px; left: 6px; font-family: var(--f-mono); font-size: 7px; letter-spacing: .14em; text-transform: uppercase; background: var(--amber); color: var(--paper); padding: 2px 6px; }
+.photo-num { position: absolute; bottom: 5px; left: 7px; font-family: var(--f-mono); font-size: 9px; color: rgba(245,242,236,.7); }
+.photo-tile-actions { position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(26,24,20,.55); display: flex; align-items: center; justify-content: center; gap: 6px; opacity: 0; transition: opacity .2s; }
+.photo-tile:hover .photo-tile-actions { opacity: 1; }
+.photo-tile-actions button { background: rgba(245,242,236,.15); border: 1px solid rgba(245,242,236,.3); color: var(--paper); width: 26px; height: 26px; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; transition: background .2s; }
+.photo-tile-actions button:hover { background: rgba(245,242,236,.3); }
+.photo-tile-actions button:disabled { opacity: .3; cursor: not-allowed; }
+.photo-delete { color: #e06060 !important; }
+.photo-error { font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; color: #b5441a; margin-bottom: 16px; padding: 10px 14px; background: rgba(181,68,26,.06); border: 1px solid rgba(181,68,26,.2); }
 .lineage-hint { font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; color: var(--muted); text-align: right; max-width: 200px; line-height: 1.5; }
 
 /* Archive empty state */
