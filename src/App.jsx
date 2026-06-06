@@ -92,7 +92,7 @@ export default function App() {
   const fetchSubmissions = async (userId) => {
     const { data } = await supabase
       .from("essays")
-      .select("id, title, genre, status, created_at")
+      .select("id, title, genre, status, created_at, influences, statement, photos(display_url, is_cover)")
       .eq("photographer_id", userId)
       .order("created_at", { ascending: false });
     if (data) setSubmissions(data);
@@ -241,6 +241,28 @@ export default function App() {
     }
   };
 
+  // ── Delete essay ────────────────────────────────────────────
+  const deleteEssay = async (essayId) => {
+    // Photos cascade-delete via DB constraint; remove storage files first
+    const { data: photos } = await supabase.from("photos").select("storage_url").eq("essay_id", essayId);
+    if (photos?.length) {
+      await supabase.storage.from("essay-photos").remove(photos.map(p => p.storage_url));
+    }
+    await supabase.from("essays").delete().eq("id", essayId);
+    setSubmissions(s => s.filter(e => e.id !== essayId));
+  };
+
+  // ── Approve / change status (editor only) ───────────────────
+  const updateEssayStatus = async (essayId, status) => {
+    const { data } = await supabase
+      .from("essays")
+      .update({ status, ...(status === "published" ? { published_at: new Date().toISOString() } : {}) })
+      .eq("id", essayId)
+      .select()
+      .single();
+    if (data) setSubmissions(s => s.map(e => e.id === essayId ? { ...e, status: data.status } : e));
+  };
+
   // ── Submit essay ────────────────────────────────────────────
   const openSubmit = () => {
     if (!user) { setAuthModal(true); return; }
@@ -292,7 +314,7 @@ export default function App() {
 
       {/* Pages */}
       {page === "main"      && <MainPage essays={MOCK_ESSAYS} saved={saved} onSave={toggleSave} onSubmit={openSubmit} onNav={showPage} />}
-      {page === "profile"   && <ProfilePage user={user} profile={profile} saved={saved} essays={MOCK_ESSAYS} submissions={submissions} editingEssay={editingEssay} essayEditForm={essayEditForm} setEssayEditForm={setEssayEditForm} openEditEssay={openEditEssay} saveEssay={saveEssay} setEditingEssay={setEditingEssay} essayPhotos={essayPhotos} uploadPhotos={uploadPhotos} deletePhoto={deletePhoto} setCover={setCover} movePhoto={movePhoto} uploadingPhotos={uploadingPhotos} photoError={photoError} profileTab={profileTab} setProfileTab={setProfileTab} editForm={editForm} setEditForm={setEditForm} saveProfile={saveProfile} savingProfile={savingProfile} saveError={saveError} saveSuccess={saveSuccess} doSignOut={doSignOut} openSubmit={openSubmit} onNav={showPage} />}
+      {page === "profile"   && <ProfilePage user={user} profile={profile} saved={saved} essays={MOCK_ESSAYS} submissions={submissions} editingEssay={editingEssay} essayEditForm={essayEditForm} setEssayEditForm={setEssayEditForm} openEditEssay={openEditEssay} saveEssay={saveEssay} setEditingEssay={setEditingEssay} deleteEssay={deleteEssay} updateEssayStatus={updateEssayStatus} essayPhotos={essayPhotos} uploadPhotos={uploadPhotos} deletePhoto={deletePhoto} setCover={setCover} movePhoto={movePhoto} uploadingPhotos={uploadingPhotos} photoError={photoError} profileTab={profileTab} setProfileTab={setProfileTab} editForm={editForm} setEditForm={setEditForm} saveProfile={saveProfile} savingProfile={savingProfile} saveError={saveError} saveSuccess={saveSuccess} doSignOut={doSignOut} openSubmit={openSubmit} onNav={showPage} />}
       {page === "about"     && <AboutPage onNav={showPage} />}
       {page === "guidelines"&& <GuidelinesPage onNav={showPage} openSubmit={openSubmit} />}
       {page === "editorial" && <EditorialPage onNav={showPage} />}
@@ -492,7 +514,7 @@ function EssayCard({ essay, large, saved, onSave }) {
   );
 }
 
-function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, essayEditForm, setEssayEditForm, openEditEssay, saveEssay, setEditingEssay, essayPhotos, uploadPhotos, deletePhoto, setCover, movePhoto, uploadingPhotos, photoError, profileTab, setProfileTab, editForm, setEditForm, saveProfile, savingProfile, saveError, saveSuccess, doSignOut, openSubmit, onNav }) {
+function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, essayEditForm, setEssayEditForm, openEditEssay, saveEssay, setEditingEssay, deleteEssay, updateEssayStatus, essayPhotos, uploadPhotos, deletePhoto, setCover, movePhoto, uploadingPhotos, photoError, profileTab, setProfileTab, editForm, setEditForm, saveProfile, savingProfile, saveError, saveSuccess, doSignOut, openSubmit, onNav }) {
   const savedEssays = essays.filter(e => saved.includes(e.id));
   const name = profile?.name || user?.email || "—";
 
@@ -606,22 +628,57 @@ function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, 
                         </div>
                       </div>
                     ) : (
-                      <div className="essay-row" key={e.id}>
-                        <div className="essay-thumb-placeholder" />
-                        <div>
-                          <div className="essay-row-title">{e.title}</div>
-                          <div className="essay-row-meta">{e.genre} · Submitted {new Date(e.created_at).toLocaleDateString("en-GB", {month:"short", year:"numeric"})}</div>
+                      <div key={e.id}>
+                        <div className="essay-row">
+                          {(() => {
+                            const cover = e.photos?.find(p => p.is_cover) || e.photos?.[0];
+                            return cover
+                              ? <img className="essay-thumb" src={cover.display_url} alt="" />
+                              : <div className="essay-thumb-placeholder" />;
+                          })()}
+                          <div>
+                            <div className="essay-row-title">{e.title}</div>
+                            <div className="essay-row-meta">{e.genre} · {new Date(e.created_at).toLocaleDateString("en-GB", {month:"short", year:"numeric"})}</div>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                            <span className={`status-badge ${e.status === "published" ? "published" : e.status === "in_review" ? "review" : "draft"}`}>
+                              {e.status === "in_review" ? "In Review" : e.status.charAt(0).toUpperCase() + e.status.slice(1)}
+                            </span>
+                            {(e.status === "draft" || e.status === "submitted") && (
+                              <button className="btn-edit-essay" onClick={()=>openEditEssay(e)} title="Edit">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                              </button>
+                            )}
+                            {e.status !== "published" && (
+                              <button className="btn-edit-essay" style={{color:"#c06060"}} onClick={()=>{ if(window.confirm("Delete this essay and all its photos?")) deleteEssay(e.id); }} title="Delete">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div style={{display:"flex",alignItems:"center",gap:12}}>
-                          <span className={`status-badge ${e.status === "published" ? "published" : e.status === "in_review" ? "review" : "draft"}`}>
-                            {e.status === "in_review" ? "In Review" : e.status.charAt(0).toUpperCase() + e.status.slice(1)}
-                          </span>
-                          {(e.status === "draft" || e.status === "submitted") && (
-                            <button className="btn-edit-essay" onClick={()=>openEditEssay(e)} title="Edit">
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                            </button>
-                          )}
-                        </div>
+                        {/* Editor approval bar — only visible to editors/admins */}
+                        {profile?.is_editor && (
+                          <div className="approval-bar">
+                            <span className="approval-label">Editorial</span>
+                            <div className="approval-actions">
+                              {e.status === "submitted" && (
+                                <button className="approval-btn approval-btn--amber" onClick={()=>updateEssayStatus(e.id,"in_review")}>Mark In Review</button>
+                              )}
+                              {(e.status === "submitted" || e.status === "in_review") && (
+                                <>
+                                  <button className="approval-btn approval-btn--green" onClick={()=>updateEssayStatus(e.id,"published")}>Publish</button>
+                                  <button className="approval-btn approval-btn--red" onClick={()=>updateEssayStatus(e.id,"declined")}>Decline</button>
+                                </>
+                              )}
+                              {e.status === "published" && (
+                                <button className="approval-btn approval-btn--red" onClick={()=>updateEssayStatus(e.id,"in_review")}>Unpublish</button>
+                              )}
+                              {e.status === "declined" && (
+                                <button className="approval-btn approval-btn--amber" onClick={()=>updateEssayStatus(e.id,"submitted")}>Reopen</button>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )
                   ))}
@@ -1123,6 +1180,16 @@ footer { border-top: 1px solid var(--line-2); padding: 32px var(--gutter); margi
 .photo-tile-actions button:hover { background: rgba(245,242,236,.3); }
 .photo-tile-actions button:disabled { opacity: .3; cursor: not-allowed; }
 .photo-delete { color: #e06060 !important; }
+.approval-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; background: var(--paper-2); border-bottom: 1px solid var(--line-2); border-top: 1px solid var(--line); }
+.approval-label { font-family: var(--f-mono); font-size: 8px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
+.approval-actions { display: flex; gap: 8px; }
+.approval-btn { font-family: var(--f-mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; background: none; border: 1px solid var(--line-2); padding: 5px 12px; cursor: pointer; transition: background .2s, color .2s, border-color .2s; color: var(--ink-3); }
+.approval-btn--green { border-color: rgba(74,124,89,.4); color: var(--green); }
+.approval-btn--green:hover { background: var(--green); color: var(--paper); border-color: var(--green); }
+.approval-btn--amber { border-color: rgba(156,122,60,.4); color: var(--amber); }
+.approval-btn--amber:hover { background: var(--amber); color: var(--paper); border-color: var(--amber); }
+.approval-btn--red { border-color: rgba(181,68,26,.3); color: #b5441a; }
+.approval-btn--red:hover { background: #b5441a; color: var(--paper); border-color: #b5441a; }
 .photo-error { font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; color: #b5441a; margin-bottom: 16px; padding: 10px 14px; background: rgba(181,68,26,.06); border: 1px solid rgba(181,68,26,.2); }
 .lineage-hint { font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; color: var(--muted); text-align: right; max-width: 200px; line-height: 1.5; }
 
