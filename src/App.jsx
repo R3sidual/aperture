@@ -256,12 +256,12 @@ export default function App() {
 
   // ── Delete essay ────────────────────────────────────────────
   const deleteEssay = async (essayId) => {
-    // Photos cascade-delete via DB constraint; remove storage files first
     const { data: photos } = await supabase.from("photos").select("storage_url").eq("essay_id", essayId);
     if (photos?.length) {
       await supabase.storage.from("essay-photos").remove(photos.map(p => p.storage_url));
     }
-    await supabase.from("essays").delete().eq("id", essayId);
+    const { error } = await supabase.from("essays").delete().eq("id", essayId);
+    if (error) { alert("Delete failed: " + error.message); return; }
     setSubmissions(s => s.filter(e => e.id !== essayId));
   };
 
