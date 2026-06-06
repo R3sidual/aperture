@@ -93,10 +93,22 @@ export default function App() {
   const fetchSubmissions = async (userId) => {
     const { data } = await supabase
       .from("essays")
-      .select("id, title, genre, status, created_at, influences, statement, photos(display_url, is_cover)")
+      .select("id, title, genre, status, created_at, influences, statement")
       .eq("photographer_id", userId)
       .order("created_at", { ascending: false });
-    if (data) setSubmissions(data);
+    if (data) {
+      // Fetch cover photos separately to avoid RLS join issues
+      const enriched = await Promise.all(data.map(async (essay) => {
+        const { data: cover } = await supabase
+          .from("photos")
+          .select("display_url")
+          .eq("essay_id", essay.id)
+          .eq("is_cover", true)
+          .maybeSingle();
+        return { ...essay, cover_url: cover?.display_url || null };
+      }));
+      setSubmissions(enriched);
+    }
   };
 
   // ── Navigation ─────────────────────────────────────────────
@@ -633,12 +645,9 @@ function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, 
                     ) : (
                       <div key={e.id}>
                         <div className="essay-row">
-                          {(() => {
-                            const cover = e.photos?.find(p => p.is_cover) || e.photos?.[0];
-                            return cover
-                              ? <img className="essay-thumb" src={cover.display_url} alt="" />
-                              : <div className="essay-thumb-placeholder" />;
-                          })()}
+                          {e.cover_url
+                            ? <img className="essay-thumb" src={e.cover_url} alt="" />
+                            : <div className="essay-thumb-placeholder" />}
                           <div>
                             <div className="essay-row-title">{e.title}</div>
                             <div className="essay-row-meta">{e.genre} · {new Date(e.created_at).toLocaleDateString("en-GB", {month:"short", year:"numeric"})}</div>
