@@ -100,12 +100,23 @@ export default function App() {
   };
 
   const fetchEditorSubmissions = async () => {
-    const { data } = await supabase
+    // Fetch essays
+    const { data: essays } = await supabase
       .from("essays")
-      .select("id, title, genre, status, created_at, statement, influences, photographer_id, users(name, bio, instagram, website, lineage_node_id, influences)")
+      .select("id, title, genre, status, created_at, statement, influences, photographer_id")
       .in("status", ["submitted","in_review","published","declined"])
       .order("created_at", { ascending: false });
-    if (data) setEditorSubmissions(data);
+    if (!essays) return;
+
+    // Fetch photographer profiles separately to avoid FK dependency
+    const photographerIds = [...new Set(essays.map(e => e.photographer_id))];
+    const { data: profiles } = await supabase
+      .from("users")
+      .select("id, name, bio, instagram, website, lineage_node_id, influences")
+      .in("id", photographerIds);
+
+    const profileMap = Object.fromEntries((profiles||[]).map(p => [p.id, p]));
+    setEditorSubmissions(essays.map(e => ({ ...e, users: profileMap[e.photographer_id] || null })));
   };
 
   const fetchSubmissions = async (userId) => {
@@ -1240,13 +1251,13 @@ header { position: fixed; top: 0; left: 0; right: 0; height: var(--header-h); z-
 .hero { border-bottom: 1px solid var(--line-2); }
 .hero-inner { max-width: var(--max-w); margin: 0 auto; padding: clamp(64px,10vh,120px) var(--gutter) 0; display: grid; grid-template-columns: 1fr; align-items: end; }
 .hero-left { padding-bottom: clamp(40px,6vh,72px); max-width: 680px; }
-.hero-kicker { font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 28px; display: flex; align-items: center; gap: 10px; }
+.hero-kicker { font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 28px; display: flex; align-items: center; gap: 10px; opacity: 1; }
 .hero-kicker::before { content:""; display:block; width:24px; height:1px; background:var(--amber); }
 .hero-title { font-family: var(--f-serif); font-size: clamp(40px,6vw,82px); font-weight: 400; line-height: 1.08; letter-spacing: -.01em; }
 .hero-title em { font-style: italic; color: var(--ink-3); }
-.hero-desc { margin-top: 28px; font-size: clamp(17px,1.5vw,20px); font-style: italic; color: var(--ink-3); line-height: 1.55; max-width: 440px; }
+.hero-desc { margin-top: 28px; font-size: clamp(17px,1.5vw,20px); font-style: italic; color: var(--ink-2); line-height: 1.55; max-width: 560px; }
 .hero-actions { margin-top: 40px; display: flex; align-items: center; gap: 28px; }
-.btn-read { font-family: var(--f-mono); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink); text-decoration: none; display: flex; align-items: center; gap: 10px; transition: color .2s; }
+.btn-read { font-family: var(--f-mono); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink); text-decoration: none; display: flex; align-items: center; gap: 10px; transition: color .2s; background: none; border: none; cursor: pointer; padding: 0; }
 .btn-read:hover { color: var(--amber); }
 .btn-read-rule { display:block; width:32px; height:1px; background:currentColor; transition:width .3s; }
 .btn-read:hover .btn-read-rule { width: 52px; }
@@ -1462,7 +1473,7 @@ footer { border-top: 1px solid var(--line-2); padding: 32px var(--gutter); margi
 /* Archive empty state */
 .archive-empty { padding: clamp(64px,10vh,120px) 0; text-align: center; border: 1px solid var(--line-2); }
 .archive-empty-title { font-family: var(--f-serif); font-size: clamp(20px,2.5vw,28px); font-weight: 400; color: var(--ink); margin-bottom: 16px; }
-.archive-empty-sub { font-family: var(--f-body); font-size: clamp(15px,1.3vw,18px); font-style: italic; color: var(--ink-3); max-width: 440px; margin: 0 auto; line-height: 1.6; }
+.archive-empty-sub { font-family: var(--f-body); font-size: clamp(15px,1.3vw,18px); font-style: italic; color: var(--ink-2); max-width: 440px; margin: 0 auto; line-height: 1.6; }
 
 /* Caption editor */
 .caption-editor { background: var(--paper-2); border: 1px solid var(--line-2); padding: 20px; margin-bottom: 20px; }
