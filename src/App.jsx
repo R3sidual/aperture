@@ -1416,9 +1416,9 @@ const CSS = `
   --line:    rgba(26,24,20,0.10);
   --line-2:  rgba(26,24,20,0.18);
   --muted:   rgba(26,24,20,0.42);
-  --f-serif: "Libre Baskerville", Georgia, serif;
-  --f-body:  "EB Garamond", Georgia, serif;
-  --f-mono:  "Courier Prime", "Courier New", monospace;
+  --f-serif: Georgia, "Times New Roman", serif;
+  --f-body:  Georgia, "Times New Roman", serif;
+  --f-mono:  "Courier New", monospace;
   --max-w:   1280px;
   --gutter:  clamp(24px, 5vw, 64px);
   --header-h:58px;
