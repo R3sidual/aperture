@@ -774,34 +774,7 @@ function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, 
                               onChange={ev => !uploadingPhotos && uploadPhotos(ev.target.files, e.id)} />
                           </div>
 
-                          {/* Essay reader */
-.reader-page { padding-top: var(--header-h); min-height: 100vh; }
-.reader-loading { padding-top: var(--header-h); min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
-.reader-header { max-width: var(--max-w); margin: 0 auto; padding: 28px var(--gutter) 0; display: flex; align-items: center; border-bottom: 1px solid var(--line-2); padding-bottom: 20px; }
-.reader-title-block { max-width: 760px; margin: 0 auto; padding: clamp(48px,8vh,96px) var(--gutter) clamp(40px,6vh,72px); }
-.reader-genre { font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
-.reader-genre::before { content:""; display:block; width:20px; height:1px; background:var(--amber); }
-.reader-title { font-family: var(--f-serif); font-size: clamp(36px,6vw,72px); font-weight: 400; line-height: 1.06; letter-spacing: -.01em; margin-bottom: 20px; }
-.reader-byline { font-family: var(--f-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 32px; }
-.reader-statement { font-family: var(--f-body); font-size: clamp(17px,1.5vw,20px); font-style: italic; color: var(--ink-2); line-height: 1.7; padding-top: 28px; border-top: 1px solid var(--line-2); }
-.reader-photos { display: flex; flex-direction: column; }
-.reader-photo { border-top: 1px solid var(--line-2); }
-.reader-photo-img-wrap { max-width: 100%; overflow: hidden; }
-.reader-photo-img-wrap img { width: 100%; display: block; max-height: 92vh; object-fit: contain; background: var(--paper-2); }
-.reader-caption { max-width: 760px; margin: 0 auto; padding: 16px var(--gutter) 32px; }
-.reader-caption-meta { font-family: var(--f-mono); font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 6px; }
-.reader-caption-text { font-family: var(--f-body); font-size: 15px; font-style: italic; color: var(--ink-3); line-height: 1.6; }
-.reader-bio-block { border-top: 1px solid var(--line-2); margin-top: 48px; padding: clamp(40px,6vh,72px) var(--gutter); }
-.reader-bio-inner { max-width: 760px; margin: 0 auto; display: flex; gap: 24px; align-items: flex-start; }
-.reader-bio-avatar { width: 48px; height: 48px; border-radius: 50%; background: var(--paper-3); border: 1px solid var(--line-2); display: flex; align-items: center; justify-content: center; font-family: var(--f-serif); font-size: 18px; font-weight: 700; color: var(--ink-3); flex-shrink: 0; }
-.reader-bio-name { font-family: var(--f-serif); font-size: 18px; font-weight: 700; margin-bottom: 10px; }
-.reader-bio-text { font-family: var(--f-body); font-size: 16px; font-style: italic; color: var(--ink-3); line-height: 1.6; margin-bottom: 14px; }
-.reader-bio-links { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
-.reader-bio-meta { font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; color: var(--muted); }
-.card-img--empty { background: var(--paper-3); width: 100%; height: 100%; display: block; }
-.single-essay-row { border: 1px solid var(--line-2); }
 
-/* Caption editor */}
                           {editingCaption && (
                             <div className="caption-editor">
                               <p className="essay-edit-section-title">Caption for photo {essayPhotos.findIndex(p=>p.id===editingCaption)+1}</p>
@@ -1672,6 +1645,32 @@ footer { border-top: 1px solid var(--line-2); padding: 32px var(--gutter); margi
 .archive-empty-sub { font-family: var(--f-body); font-size: clamp(15px,1.3vw,18px); font-style: italic; color: var(--ink-2); max-width: 440px; margin: 0 auto; line-height: 1.6; }
 
 /* Essay reader */
+.reader-page { padding-top: var(--header-h); min-height: 100vh; }
+.reader-loading { padding-top: var(--header-h); min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
+.reader-header { max-width: var(--max-w); margin: 0 auto; padding: 28px var(--gutter) 0; display: flex; align-items: center; border-bottom: 1px solid var(--line-2); padding-bottom: 20px; }
+.reader-title-block { max-width: 760px; margin: 0 auto; padding: clamp(48px,8vh,96px) var(--gutter) clamp(40px,6vh,72px); }
+.reader-genre { font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+.reader-genre::before { content:""; display:block; width:20px; height:1px; background:var(--amber); }
+.reader-title { font-family: var(--f-serif); font-size: clamp(36px,6vw,72px); font-weight: 400; line-height: 1.06; letter-spacing: -.01em; margin-bottom: 20px; }
+.reader-byline { font-family: var(--f-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 32px; }
+.reader-statement { font-family: var(--f-body); font-size: clamp(17px,1.5vw,20px); font-style: italic; color: var(--ink-2); line-height: 1.7; padding-top: 28px; border-top: 1px solid var(--line-2); }
+.reader-photos { display: flex; flex-direction: column; }
+.reader-photo { border-top: 1px solid var(--line-2); }
+.reader-photo-img-wrap { max-width: 100%; overflow: hidden; }
+.reader-photo-img-wrap img { width: 100%; display: block; max-height: 92vh; object-fit: contain; background: var(--paper-2); }
+.reader-caption { max-width: 760px; margin: 0 auto; padding: 16px var(--gutter) 32px; }
+.reader-caption-meta { font-family: var(--f-mono); font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 6px; }
+.reader-caption-text { font-family: var(--f-body); font-size: 15px; font-style: italic; color: var(--ink-3); line-height: 1.6; }
+.reader-bio-block { border-top: 1px solid var(--line-2); margin-top: 48px; padding: clamp(40px,6vh,72px) var(--gutter); }
+.reader-bio-inner { max-width: 760px; margin: 0 auto; display: flex; gap: 24px; align-items: flex-start; }
+.reader-bio-avatar { width: 48px; height: 48px; border-radius: 50%; background: var(--paper-3); border: 1px solid var(--line-2); display: flex; align-items: center; justify-content: center; font-family: var(--f-serif); font-size: 18px; font-weight: 700; color: var(--ink-3); flex-shrink: 0; }
+.reader-bio-name { font-family: var(--f-serif); font-size: 18px; font-weight: 700; margin-bottom: 10px; }
+.reader-bio-text { font-family: var(--f-body); font-size: 16px; font-style: italic; color: var(--ink-3); line-height: 1.6; margin-bottom: 14px; }
+.reader-bio-links { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
+.reader-bio-meta { font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; color: var(--muted); }
+.card-img--empty { background: var(--paper-3); width: 100%; height: 100%; display: block; }
+.single-essay-row { border: 1px solid var(--line-2); }
+
 .reader-page { padding-top: var(--header-h); min-height: 100vh; }
 .reader-loading { padding-top: var(--header-h); min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
 .reader-header { max-width: var(--max-w); margin: 0 auto; padding: 28px var(--gutter) 0; display: flex; align-items: center; border-bottom: 1px solid var(--line-2); padding-bottom: 20px; }
