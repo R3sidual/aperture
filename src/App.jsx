@@ -389,15 +389,17 @@ export default function App() {
 
   // ── Approve / change status (editor only) ───────────────────
   const updateEssayStatus = async (essayId, status) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("essays")
       .update({ status, ...(status === "published" ? { published_at: new Date().toISOString() } : {}) })
       .eq("id", essayId)
       .select()
       .single();
+    if (error) { alert("Status update failed: " + error.message); return; }
     if (data) {
       setSubmissions(s => s.map(e => e.id === essayId ? { ...e, status: data.status } : e));
-      fetchPublishedEssays();
+      setEditorSubmissions(s => s.map(e => e.id === essayId ? { ...e, status: data.status } : e));
+      await fetchPublishedEssays();
     }
   };
 
