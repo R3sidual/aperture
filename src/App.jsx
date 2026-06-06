@@ -45,6 +45,13 @@ export default function App() {
   const [essayPhotos, setEssayPhotos] = useState([]);   // photos for the essay being edited
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [photoError, setPhotoError] = useState("");
+  const [editingCaption, setEditingCaption] = useState(null); // photo id being captioned
+  const [captionForm, setCaptionForm] = useState({ location:"", year:"", caption:"" });
+  const [reviewingEssay, setReviewingEssay] = useState(null); // editor review
+  const [reviewPhotos, setReviewPhotos] = useState([]);
+  const [reviewNote, setReviewNote] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+  const [editorSubmissions, setEditorSubmissions] = useState([]);
   const [submissions, setSubmissions] = useState([]);
   const [signingIn, setSigningIn] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -80,6 +87,7 @@ export default function App() {
       });
       fetchSaved(u.id);
       fetchSubmissions(u.id);
+      if (data?.is_editor) fetchEditorSubmissions();
     }
   };
 
@@ -89,6 +97,15 @@ export default function App() {
       .select("essay_id")
       .eq("user_id", userId);
     if (data) setSaved(data.map(r => r.essay_id));
+  };
+
+  const fetchEditorSubmissions = async () => {
+    const { data } = await supabase
+      .from("essays")
+      .select("id, title, genre, status, created_at, statement, influences, photographer_id, users(name, bio, instagram, website, lineage_node_id, influences)")
+      .in("status", ["submitted","in_review","published","declined"])
+      .order("created_at", { ascending: false });
+    if (data) setEditorSubmissions(data);
   };
 
   const fetchSubmissions = async (userId) => {
@@ -178,6 +195,30 @@ export default function App() {
   };
 
   // ── Edit existing essay ────────────────────────────────────
+  const openReview = async (essay) => {
+    setReviewingEssay(essay);
+    setReviewNote("");
+    const { data } = await supabase
+      .from("photos")
+      .select("*")
+      .eq("essay_id", essay.id)
+      .order("sequence_order");
+    setReviewPhotos(data || []);
+    window.scrollTo(0,0);
+  };
+
+  const saveNote = async () => {
+    if (!reviewingEssay || !reviewNote.trim()) return;
+    setSavingNote(true);
+    await supabase.from("editorial_notes").insert({
+      essay_id: reviewingEssay.id,
+      editor_id: user.id,
+      note: reviewNote.trim(),
+    });
+    setReviewNote("");
+    setSavingNote(false);
+  };
+
   const openEditEssay = async (essay) => {
     setEssayEditForm({ title: essay.title, genre: essay.genre || "", statement: essay.statement || "", influences: essay.influences || "" });
     setEditingEssay(essay);
@@ -239,6 +280,19 @@ export default function App() {
     await supabase.from("photos").update({ sequence_order: photo.sequence_order }).eq("id", swap.id);
     const { data } = await supabase.from("photos").select("*").eq("essay_id", photo.essay_id).order("sequence_order");
     setEssayPhotos(data || []);
+  };
+
+  const openCaption = (photo) => {
+    setEditingCaption(photo.id);
+    setCaptionForm({ location: photo.location || "", year: photo.year || "", caption: photo.caption || "" });
+  };
+
+  const saveCaption = async (photoId) => {
+    await supabase.from("photos")
+      .update({ location: captionForm.location, year: captionForm.year ? parseInt(captionForm.year) : null, caption: captionForm.caption })
+      .eq("id", photoId);
+    setEssayPhotos(p => p.map(x => x.id === photoId ? { ...x, ...captionForm, year: captionForm.year ? parseInt(captionForm.year) : null } : x));
+    setEditingCaption(null);
   };
 
   const saveEssay = async () => {
@@ -330,7 +384,7 @@ export default function App() {
 
       {/* Pages */}
       {page === "main"      && <MainPage essays={MOCK_ESSAYS} saved={saved} onSave={toggleSave} onSubmit={openSubmit} onNav={showPage} />}
-      {page === "profile"   && <ProfilePage user={user} profile={profile} saved={saved} essays={MOCK_ESSAYS} submissions={submissions} editingEssay={editingEssay} essayEditForm={essayEditForm} setEssayEditForm={setEssayEditForm} openEditEssay={openEditEssay} saveEssay={saveEssay} setEditingEssay={setEditingEssay} deleteEssay={deleteEssay} updateEssayStatus={updateEssayStatus} essayPhotos={essayPhotos} uploadPhotos={uploadPhotos} deletePhoto={deletePhoto} setCover={setCover} movePhoto={movePhoto} uploadingPhotos={uploadingPhotos} photoError={photoError} profileTab={profileTab} setProfileTab={setProfileTab} editForm={editForm} setEditForm={setEditForm} saveProfile={saveProfile} savingProfile={savingProfile} saveError={saveError} saveSuccess={saveSuccess} doSignOut={doSignOut} openSubmit={openSubmit} onNav={showPage} />}
+      {page === "profile"   && <ProfilePage user={user} profile={profile} saved={saved} essays={MOCK_ESSAYS} submissions={submissions} editingEssay={editingEssay} essayEditForm={essayEditForm} setEssayEditForm={setEssayEditForm} openEditEssay={openEditEssay} saveEssay={saveEssay} setEditingEssay={setEditingEssay} deleteEssay={deleteEssay} updateEssayStatus={updateEssayStatus} essayPhotos={essayPhotos} uploadPhotos={uploadPhotos} deletePhoto={deletePhoto} setCover={setCover} movePhoto={movePhoto} uploadingPhotos={uploadingPhotos} photoError={photoError} editingCaption={editingCaption} captionForm={captionForm} setCaptionForm={setCaptionForm} openCaption={openCaption} saveCaption={saveCaption} reviewingEssay={reviewingEssay} reviewPhotos={reviewPhotos} openReview={openReview} setReviewingEssay={setReviewingEssay} reviewNote={reviewNote} setReviewNote={setReviewNote} saveNote={saveNote} savingNote={savingNote} editorSubmissions={editorSubmissions} updateEssayStatus={updateEssayStatus} fetchEditorSubmissions={fetchEditorSubmissions} profileTab={profileTab} setProfileTab={setProfileTab} editForm={editForm} setEditForm={setEditForm} saveProfile={saveProfile} savingProfile={savingProfile} saveError={saveError} saveSuccess={saveSuccess} doSignOut={doSignOut} openSubmit={openSubmit} onNav={showPage} />}
       {page === "about"     && <AboutPage onNav={showPage} />}
       {page === "guidelines"&& <GuidelinesPage onNav={showPage} openSubmit={openSubmit} />}
       {page === "editorial" && <EditorialPage onNav={showPage} />}
@@ -520,7 +574,7 @@ function EssayCard({ essay, large, saved, onSave }) {
   );
 }
 
-function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, essayEditForm, setEssayEditForm, openEditEssay, saveEssay, setEditingEssay, deleteEssay, updateEssayStatus, essayPhotos, uploadPhotos, deletePhoto, setCover, movePhoto, uploadingPhotos, photoError, profileTab, setProfileTab, editForm, setEditForm, saveProfile, savingProfile, saveError, saveSuccess, doSignOut, openSubmit, onNav }) {
+function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, essayEditForm, setEssayEditForm, openEditEssay, saveEssay, setEditingEssay, deleteEssay, updateEssayStatus, essayPhotos, editingCaption, captionForm, setCaptionForm, openCaption, saveCaption, reviewingEssay, reviewPhotos, openReview, setReviewingEssay, reviewNote, setReviewNote, saveNote, savingNote, editorSubmissions, fetchEditorSubmissions, uploadPhotos, deletePhoto, setCover, movePhoto, uploadingPhotos, photoError, profileTab, setProfileTab, editForm, setEditForm, saveProfile, savingProfile, saveError, saveSuccess, doSignOut, openSubmit, onNav }) {
   const savedEssays = essays.filter(e => saved.includes(e.id));
   const name = profile?.name || user?.email || "—";
 
@@ -551,6 +605,14 @@ function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, 
               {t === "saved" ? "Saved Essays" : t === "submitted" ? "Submitted" : "Edit Profile"}
             </button>
           ))}
+          {profile?.is_editor && (
+            <button className={`profile-tab${profileTab==="editorial"?" active":""}`} onClick={()=>setProfileTab("editorial")}>
+              Editorial
+              {editorSubmissions.filter(e=>e.status==="submitted").length > 0 && (
+                <span className="tab-badge">{editorSubmissions.filter(e=>e.status==="submitted").length}</span>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
@@ -613,6 +675,22 @@ function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, 
                               onChange={ev => !uploadingPhotos && uploadPhotos(ev.target.files, e.id)} />
                           </div>
 
+                          {/* Caption editor */}
+                          {editingCaption && (
+                            <div className="caption-editor">
+                              <p className="essay-edit-section-title">Caption for photo {essayPhotos.findIndex(p=>p.id===editingCaption)+1}</p>
+                              <div className="two-col">
+                                <Field label="Location"><input value={captionForm.location} onChange={e=>setCaptionForm(f=>({...f,location:e.target.value}))} placeholder="Lisbon, Portugal" /></Field>
+                                <Field label="Year"><input type="number" value={captionForm.year} onChange={e=>setCaptionForm(f=>({...f,year:e.target.value}))} placeholder="2025" /></Field>
+                              </div>
+                              <Field label="Caption text (optional)"><textarea rows={2} value={captionForm.caption} onChange={e=>setCaptionForm(f=>({...f,caption:e.target.value}))} placeholder="Additional context…" /></Field>
+                              <div style={{display:"flex",gap:10}}>
+                                <button className="btn-more" onClick={()=>setEditingCaption(null)}>Cancel</button>
+                                <button className="btn-primary" style={{flex:1}} onClick={()=>saveCaption(editingCaption)}>Save Caption</button>
+                              </div>
+                            </div>
+                          )}
+
                           {/* Photo grid */}
                           {essayPhotos.length > 0 && (
                             <div className="photo-grid">
@@ -624,9 +702,13 @@ function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, 
                                     <button title="Move up" onClick={()=>movePhoto(photo,"up")} disabled={idx===0}>↑</button>
                                     <button title="Move down" onClick={()=>movePhoto(photo,"down")} disabled={idx===essayPhotos.length-1}>↓</button>
                                     {!photo.is_cover && <button title="Set as cover" onClick={()=>setCover(photo)}>⊙</button>}
+                                    <button title="Add caption" onClick={()=>openCaption(photo)}>✎</button>
                                     <button title="Delete" className="photo-delete" onClick={()=>{ if(window.confirm("Delete this photo?")) deletePhoto(photo); }}>×</button>
                                   </div>
                                   <span className="photo-num">{idx+1}</span>
+                                  {(photo.location || photo.caption) && (
+                                    <span className="photo-has-caption" title="Has caption">◉</span>
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -688,6 +770,45 @@ function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, 
                 </div>
             }
             <div style={{marginTop:24}}><button className="btn-submit" onClick={openSubmit}>+ Submit New Essay</button></div>
+          </div>
+        )}
+
+        {profileTab === "editorial" && profile?.is_editor && (
+          <div>
+            {reviewingEssay ? (
+              <EssayReviewPanel
+                essay={reviewingEssay}
+                photos={reviewPhotos}
+                reviewNote={reviewNote}
+                setReviewNote={setReviewNote}
+                saveNote={saveNote}
+                savingNote={savingNote}
+                updateEssayStatus={updateEssayStatus}
+                onClose={()=>{ setReviewingEssay(null); fetchEditorSubmissions(); }}
+              />
+            ) : (
+              <>
+                {editorSubmissions.length === 0
+                  ? <div className="empty-state">No submissions yet.<p>They'll appear here when photographers submit.</p></div>
+                  : <div className="essay-list">
+                      {editorSubmissions.map(e => (
+                        <div className="essay-row" key={e.id} style={{cursor:"pointer"}} onClick={()=>openReview(e)}>
+                          <div className="essay-thumb-placeholder"/>
+                          <div>
+                            <div className="essay-row-title">{e.title}</div>
+                            <div className="essay-row-meta">
+                              {e.users?.name || "Unknown"} · {e.genre} · {new Date(e.created_at).toLocaleDateString("en-GB",{month:"short",year:"numeric"})}
+                            </div>
+                          </div>
+                          <span className={`status-badge ${e.status==="published"?"published":e.status==="in_review"?"review":"draft"}`}>
+                            {e.status==="in_review"?"In Review":e.status.charAt(0).toUpperCase()+e.status.slice(1)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                }
+              </>
+            )}
           </div>
         )}
 
@@ -910,6 +1031,84 @@ function Field({ label, children }) {
     <div className="field">
       <label>{label}</label>
       {children}
+    </div>
+  );
+}
+
+function EssayReviewPanel({ essay, photos, reviewNote, setReviewNote, saveNote, savingNote, updateEssayStatus, onClose }) {
+  const photographer = essay.users || {};
+  return (
+    <div className="review-panel">
+      <div className="review-panel-header">
+        <button className="btn-edit-close" onClick={onClose}>← All Submissions</button>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <span className={`status-badge ${essay.status==="published"?"published":essay.status==="in_review"?"review":"draft"}`}>
+            {essay.status==="in_review"?"In Review":essay.status.charAt(0).toUpperCase()+essay.status.slice(1)}
+          </span>
+          {essay.status==="submitted" && <button className="approval-btn approval-btn--amber" onClick={()=>updateEssayStatus(essay.id,"in_review")}>Mark In Review</button>}
+          {(essay.status==="submitted"||essay.status==="in_review") && <>
+            <button className="approval-btn approval-btn--green" onClick={()=>{ updateEssayStatus(essay.id,"published"); onClose(); }}>Publish</button>
+            <button className="approval-btn approval-btn--red" onClick={()=>{ updateEssayStatus(essay.id,"declined"); onClose(); }}>Decline</button>
+          </>}
+          {essay.status==="published" && <button className="approval-btn approval-btn--red" onClick={()=>updateEssayStatus(essay.id,"in_review")}>Unpublish</button>}
+          {essay.status==="declined" && <button className="approval-btn approval-btn--amber" onClick={()=>updateEssayStatus(essay.id,"submitted")}>Reopen</button>}
+        </div>
+      </div>
+
+      <div className="review-grid">
+        <div className="review-main">
+          <h2 className="review-essay-title">{essay.title}</h2>
+          <p className="review-essay-genre">{essay.genre}</p>
+
+          {essay.statement && <>
+            <h3 className="review-section-head">Artist Statement</h3>
+            <p className="review-text">{essay.statement}</p>
+          </>}
+
+          <h3 className="review-section-head">Photographs ({photos.length})</h3>
+          {photos.length === 0
+            ? <p className="review-text" style={{opacity:.5,fontStyle:"italic"}}>No photographs uploaded yet.</p>
+            : <div className="review-photos">
+                {photos.map((photo, idx) => (
+                  <div className="review-photo" key={photo.id}>
+                    <div className="review-photo-img-wrap">
+                      <img src={photo.display_url || photo.storage_url} alt="" />
+                      {photo.is_cover && <span className="cover-badge">Cover</span>}
+                      <span className="photo-num">{idx+1}</span>
+                    </div>
+                    <div className="review-photo-meta">
+                      {photo.location && <span>{photo.location}</span>}
+                      {photo.year && <span>{photo.year}</span>}
+                      {photo.caption && <p className="review-photo-caption">{photo.caption}</p>}
+                      {!photo.location && !photo.year && !photo.caption && (
+                        <span style={{opacity:.4,fontStyle:"italic",fontSize:13}}>No caption</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+          }
+
+          <h3 className="review-section-head">Editorial Note</h3>
+          <div className="field">
+            <textarea rows={4} value={reviewNote} onChange={e=>setReviewNote(e.target.value)} placeholder="Internal notes — not visible to the photographer…" style={{width:"100%",background:"var(--paper-2)",border:"1px solid var(--line-2)",padding:"11px 14px",fontFamily:"var(--f-body)",fontSize:16,color:"var(--ink)",outline:"none",resize:"vertical"}} />
+          </div>
+          <button className="btn-primary" style={{maxWidth:180}} onClick={saveNote} disabled={savingNote}>
+            {savingNote?"Saving…":"Save Note"}
+          </button>
+        </div>
+
+        <aside className="review-aside">
+          <h3 className="review-section-head">Photographer</h3>
+          <div className="aside-block"><p className="aside-label">Name</p><p className="aside-val">{photographer.name||"—"}</p></div>
+          {photographer.bio && <div className="aside-block"><p className="aside-label">Bio</p><p className="aside-val" style={{fontSize:14,lineHeight:1.6}}>{photographer.bio}</p></div>}
+          {photographer.instagram && <div className="aside-block"><p className="aside-label">Instagram</p><p className="aside-val">{photographer.instagram}</p></div>}
+          {photographer.website && <div className="aside-block"><p className="aside-label">Website</p><p className="aside-val"><a href={photographer.website} target="_blank" rel="noreferrer" className="static-link">{photographer.website}</a></p></div>}
+          {essay.influences && <div className="aside-block"><p className="aside-label">Influences</p><p className="aside-val" style={{fontSize:14,lineHeight:1.6}}>{essay.influences}</p></div>}
+          {photographer.lineage_node_id && <div className="aside-block"><p className="aside-label">Lineage Node</p><p className="aside-val"><a href={`https://lineage-two.vercel.app/?node=${photographer.lineage_node_id}`} target="_blank" rel="noreferrer" className="static-link">{photographer.lineage_node_id}</a></p></div>}
+          <div className="aside-block"><p className="aside-label">Submitted</p><p className="aside-val" style={{fontSize:14}}>{new Date(essay.created_at).toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"})}</p></div>
+        </aside>
+      </div>
     </div>
   );
 }
@@ -1264,6 +1463,35 @@ footer { border-top: 1px solid var(--line-2); padding: 32px var(--gutter); margi
 .archive-empty { padding: clamp(64px,10vh,120px) 0; text-align: center; border: 1px solid var(--line-2); }
 .archive-empty-title { font-family: var(--f-serif); font-size: clamp(20px,2.5vw,28px); font-weight: 400; color: var(--ink); margin-bottom: 16px; }
 .archive-empty-sub { font-family: var(--f-body); font-size: clamp(15px,1.3vw,18px); font-style: italic; color: var(--ink-3); max-width: 440px; margin: 0 auto; line-height: 1.6; }
+
+/* Caption editor */
+.caption-editor { background: var(--paper-2); border: 1px solid var(--line-2); padding: 20px; margin-bottom: 20px; }
+.photo-has-caption { position: absolute; bottom: 5px; right: 7px; color: var(--amber); font-size: 10px; }
+
+/* Tab badge */
+.tab-badge { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: var(--amber); color: var(--paper); font-size: 8px; font-family: var(--f-mono); margin-left: 6px; }
+
+/* Editor review panel */
+.review-panel { padding: 0; }
+.review-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; border-bottom: 1px solid var(--line-2); margin-bottom: 32px; flex-wrap: wrap; gap: 12px; }
+.review-grid { display: grid; grid-template-columns: 1fr 260px; gap: clamp(32px,5vw,64px); align-items: start; }
+.review-essay-title { font-family: var(--f-serif); font-size: clamp(24px,3vw,40px); font-weight: 400; margin-bottom: 8px; }
+.review-essay-genre { font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 32px; }
+.review-section-head { font-family: var(--f-serif); font-size: 14px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-4); margin: 32px 0 16px; border-top: 1px solid var(--line-2); padding-top: 20px; }
+.review-text { font-size: 17px; line-height: 1.7; color: var(--ink-2); }
+.review-photos { display: flex; flex-direction: column; gap: 32px; }
+.review-photo { display: grid; grid-template-columns: 1fr 200px; gap: 20px; align-items: start; border-bottom: 1px solid var(--line); padding-bottom: 24px; }
+.review-photo-img-wrap { position: relative; overflow: hidden; aspect-ratio: 3/2; background: var(--paper-3); }
+.review-photo-img-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.review-photo-meta { font-family: var(--f-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); display: flex; flex-direction: column; gap: 6px; padding-top: 4px; }
+.review-photo-caption { font-family: var(--f-body); font-size: 14px; font-style: italic; color: var(--ink-3); text-transform: none; letter-spacing: 0; line-height: 1.5; margin-top: 4px; }
+.review-aside { position: sticky; top: calc(var(--header-h) + 24px); }
+
+@media (max-width: 900px) {
+  .review-grid { grid-template-columns: 1fr; }
+  .review-aside { position: static; }
+  .review-photo { grid-template-columns: 1fr; }
+}
 
 /* Influence input */
 .influence-input { position: relative; }
