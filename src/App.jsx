@@ -34,6 +34,7 @@ export default function App() {
   const [profileTab, setProfileTab] = useState("saved");
   const [submitStep, setSubmitStep] = useState(1);
   const [submitDone, setSubmitDone] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [submitForm, setSubmitForm] = useState({ name:"", bio:"", influences:"", title:"", genre:"", statement:"", fileCount:0 });
   const [editForm, setEditForm]   = useState({ first:"", last:"", bio:"", website:"", instagram:"", lineage_node_id:"" });
   const [savingProfile, setSavingProfile] = useState(false);
@@ -272,7 +273,8 @@ export default function App() {
   };
 
   const doSubmit = async () => {
-    await supabase.from("essays").insert({
+    setSubmitError("");
+    const { error } = await supabase.from("essays").insert({
       photographer_id: user.id,
       title: submitForm.title,
       genre: submitForm.genre,
@@ -280,6 +282,7 @@ export default function App() {
       influences: submitForm.influences,
       status: "submitted",
     });
+    if (error) { setSubmitError(error.message); return; }
     setSubmitDone(true);
     if (user) fetchSubmissions(user.id);
   };
