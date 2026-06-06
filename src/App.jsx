@@ -20,7 +20,7 @@ const MOCK_ESSAYS = [
   { id: "9", title: "Estuary at Dusk",           genre: "Landscape",    photographer: "Cécile Morin", photo_count: 19, year: 2025, img: "https://images.unsplash.com/photo-1521295121783-8a321d551ad2?w=700&q=75" },
 ];
 
-const STATIC_PAGES = ["about", "guidelines", "editorial", "faq", "contact"];
+const STATIC_PAGES = ["about", "guidelines", "editorial", "faq", "contact", "essay"];
 
 // ─── App ─────────────────────────────────────────────────────
 export default function App() {
@@ -53,10 +53,48 @@ export default function App() {
   const [savingNote, setSavingNote] = useState(false);
   const [editorSubmissions, setEditorSubmissions] = useState([]);
   const [submissions, setSubmissions] = useState([]);
+  const [publishedEssays, setPublishedEssays] = useState([]);
+  const [readingEssay, setReadingEssay] = useState(null);   // { essay, photos, photographer }
+  const [loadingEssay, setLoadingEssay] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [authError, setAuthError] = useState("");
   const [signInForm, setSignInForm] = useState({ email:"", password:"" });
   const [signUpForm, setSignUpForm] = useState({ first:"", last:"", email:"", password:"" });
+
+  // ── Fetch published essays on mount ───────────────────────
+  useEffect(() => {
+    fetchPublishedEssays();
+  }, []);
+
+  const fetchPublishedEssays = async () => {
+    const { data: essays } = await supabase
+      .from("essays")
+      .select("id, title, genre, statement, published_at, photographer_id")
+      .eq("status", "published")
+      .order("published_at", { ascending: false });
+    if (!essays || essays.length === 0) { setPublishedEssays([]); return; }
+
+    // Fetch cover photos
+    const { data: covers } = await supabase
+      .from("photos")
+      .select("essay_id, display_url")
+      .in("essay_id", essays.map(e => e.id))
+      .eq("is_cover", true);
+    const coverMap = Object.fromEntries((covers||[]).map(c => [c.essay_id, c.display_url]));
+
+    // Fetch photographers
+    const { data: profiles } = await supabase
+      .from("users")
+      .select("id, name, bio")
+      .in("id", essays.map(e => e.photographer_id));
+    const profileMap = Object.fromEntries((profiles||[]).map(p => [p.id, p]));
+
+    setPublishedEssays(essays.map(e => ({
+      ...e,
+      cover_url: coverMap[e.id] || null,
+      photographer: profileMap[e.photographer_id] || null,
+    })));
+  };
 
   // ── Auth listener ──────────────────────────────────────────
   useEffect(() => {
@@ -320,6 +358,24 @@ export default function App() {
     }
   };
 
+  // ── Open essay reader ──────────────────────────────────────
+  const openEssay = async (essay) => {
+    setLoadingEssay(true);
+    showPage("essay");
+    const { data: photos } = await supabase
+      .from("photos")
+      .select("*")
+      .eq("essay_id", essay.id)
+      .order("sequence_order");
+    const { data: photographer } = await supabase
+      .from("users")
+      .select("id, name, bio, website, instagram, lineage_node_id")
+      .eq("id", essay.photographer_id)
+      .single();
+    setReadingEssay({ essay, photos: photos || [], photographer });
+    setLoadingEssay(false);
+  };
+
   // ── Delete essay ────────────────────────────────────────────
   const deleteEssay = async (essayId) => {
     const { data: photos } = await supabase.from("photos").select("storage_url").eq("essay_id", essayId);
@@ -339,7 +395,10 @@ export default function App() {
       .eq("id", essayId)
       .select()
       .single();
-    if (data) setSubmissions(s => s.map(e => e.id === essayId ? { ...e, status: data.status } : e));
+    if (data) {
+      setSubmissions(s => s.map(e => e.id === essayId ? { ...e, status: data.status } : e));
+      fetchPublishedEssays();
+    }
   };
 
   // ── Submit essay ────────────────────────────────────────────
@@ -394,13 +453,14 @@ export default function App() {
       </header>
 
       {/* Pages */}
-      {page === "main"      && <MainPage essays={MOCK_ESSAYS} saved={saved} onSave={toggleSave} onSubmit={openSubmit} onNav={showPage} />}
+      {page === "main"      && <MainPage essays={publishedEssays} saved={saved} onSave={toggleSave} onSubmit={openSubmit} onNav={showPage} onEssay={openEssay} />}
       {page === "profile"   && <ProfilePage user={user} profile={profile} saved={saved} essays={MOCK_ESSAYS} submissions={submissions} editingEssay={editingEssay} essayEditForm={essayEditForm} setEssayEditForm={setEssayEditForm} openEditEssay={openEditEssay} saveEssay={saveEssay} setEditingEssay={setEditingEssay} deleteEssay={deleteEssay} updateEssayStatus={updateEssayStatus} essayPhotos={essayPhotos} uploadPhotos={uploadPhotos} deletePhoto={deletePhoto} setCover={setCover} movePhoto={movePhoto} uploadingPhotos={uploadingPhotos} photoError={photoError} editingCaption={editingCaption} captionForm={captionForm} setCaptionForm={setCaptionForm} openCaption={openCaption} saveCaption={saveCaption} reviewingEssay={reviewingEssay} reviewPhotos={reviewPhotos} openReview={openReview} setReviewingEssay={setReviewingEssay} reviewNote={reviewNote} setReviewNote={setReviewNote} saveNote={saveNote} savingNote={savingNote} editorSubmissions={editorSubmissions} updateEssayStatus={updateEssayStatus} fetchEditorSubmissions={fetchEditorSubmissions} profileTab={profileTab} setProfileTab={setProfileTab} editForm={editForm} setEditForm={setEditForm} saveProfile={saveProfile} savingProfile={savingProfile} saveError={saveError} saveSuccess={saveSuccess} doSignOut={doSignOut} openSubmit={openSubmit} onNav={showPage} />}
       {page === "about"     && <AboutPage onNav={showPage} />}
       {page === "guidelines"&& <GuidelinesPage onNav={showPage} openSubmit={openSubmit} />}
       {page === "editorial" && <EditorialPage onNav={showPage} />}
       {page === "faq"       && <FaqPage onNav={showPage} />}
       {page === "contact"   && <ContactPage onNav={showPage} />}
+      {page === "essay"     && <EssayReaderPage essay={readingEssay} loading={loadingEssay} saved={saved} onSave={toggleSave} onNav={showPage} />}
 
       {/* Auth modal */}
       {authModal && (
@@ -512,7 +572,7 @@ export default function App() {
 
 // ─── Page components ──────────────────────────────────────────
 
-function MainPage({ essays, saved, onSave, onSubmit, onNav }) {
+function MainPage({ essays, saved, onSave, onSubmit, onNav, onEssay }) {
   return (
     <main className="main-page">
       {/* Hero */}
@@ -542,16 +602,41 @@ function MainPage({ essays, saved, onSave, onSubmit, onNav }) {
       <section className="essays-section">
         <div className="section-head">
           <div><p className="section-label">All Essays</p><h2 className="section-title">The Archive</h2></div>
-          <span className="section-count">Issue 01</span>
+          <span className="section-count">{essays.length > 0 ? `${essays.length} essay${essays.length!==1?"s":""}` : "Issue 01"}</span>
         </div>
         <div className="essays-wrap">
-          <div className="archive-empty">
-            <p className="archive-empty-title">The first essays are on their way.</p>
-            <p className="archive-empty-sub">Aperture is open for submissions. If you have a long-form photo essay to share, we'd like to read it.</p>
-            <button className="btn-read" onClick={onSubmit} style={{marginTop:24}}>
-              <span className="btn-read-rule"/>Submit Your Work
-            </button>
-          </div>
+          {essays.length === 0 ? (
+            <div className="archive-empty">
+              <p className="archive-empty-title">The first essays are on their way.</p>
+              <p className="archive-empty-sub">Aperture is open for submissions. If you have a long-form photo essay to share, we'd like to read it.</p>
+              <button className="btn-read" onClick={onSubmit} style={{marginTop:24}}>
+                <span className="btn-read-rule"/>Submit Your Work
+              </button>
+            </div>
+          ) : essays.length === 1 ? (
+            <div className="single-essay-row">
+              <EssayCard essay={essays[0]} large saved={saved.includes(essays[0].id)} onSave={onSave} onOpen={onEssay} />
+            </div>
+          ) : essays.length <= 3 ? (
+            <div className="featured-row">
+              <EssayCard essay={essays[0]} large saved={saved.includes(essays[0].id)} onSave={onSave} onOpen={onEssay} />
+              <div className="stacked-col">
+                {essays.slice(1,3).map(e => <EssayCard key={e.id} essay={e} saved={saved.includes(e.id)} onSave={onSave} onOpen={onEssay} />)}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="featured-row">
+                <EssayCard essay={essays[0]} large saved={saved.includes(essays[0].id)} onSave={onSave} onOpen={onEssay} />
+                <div className="stacked-col">
+                  {essays.slice(1,3).map(e => <EssayCard key={e.id} essay={e} saved={saved.includes(e.id)} onSave={onSave} onOpen={onEssay} />)}
+                </div>
+              </div>
+              <div className="standard-row">
+                {essays.slice(3).map(e => <EssayCard key={e.id} essay={e} saved={saved.includes(e.id)} onSave={onSave} onOpen={onEssay} />)}
+              </div>
+            </>
+          )}
         </div>
       </section>
 
@@ -560,23 +645,24 @@ function MainPage({ essays, saved, onSave, onSubmit, onNav }) {
   );
 }
 
-function EssayCard({ essay, large, saved, onSave }) {
+function EssayCard({ essay, large, saved, onSave, onOpen }) {
   return (
-    <div className={`card${large?" card--large":""}`}>
+    <div className={`card${large?" card--large":""}`} onClick={()=>onOpen&&onOpen(essay)} style={{cursor:onOpen?"pointer":"default"}}>
       <div className="card-img-wrap">
-        <img className="card-img" src={essay.img} alt="" loading="lazy" />
+        {essay.cover_url
+          ? <img className="card-img" src={essay.cover_url} alt="" loading="lazy" />
+          : <div className="card-img card-img--empty" />}
       </div>
       <div className="card-body">
         <p className="card-genre">{essay.genre}</p>
         <h3 className="card-title">{essay.title}</h3>
         <div className="card-meta">
-          <span className="card-author">{essay.photographer}</span>
-          <span className="card-sep">·</span>
-          <span>{essay.photo_count} photographs</span>
+          <span className="card-author">{essay.photographer?.name || "—"}</span>
+          {essay.published_at && <><span className="card-sep">·</span><span>{new Date(essay.published_at).getFullYear()}</span></>}
         </div>
         <div className="card-actions">
-          <a href="#" className="card-link"><span className="card-link-rule"/>Read Essay</a>
-          <button className={`card-save${saved?" saved":""}`} onClick={()=>onSave(essay.id)} title={saved?"Saved":"Save essay"}>
+          <span className="card-link" onClick={e=>{e.stopPropagation();onOpen&&onOpen(essay);}}><span className="card-link-rule"/>Read Essay</span>
+          <button className={`card-save${saved?" saved":""}`} onClick={e=>{e.stopPropagation();onSave(essay.id);}} title={saved?"Saved":"Save essay"}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill={saved?"currentColor":"none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
           </button>
         </div>
@@ -686,7 +772,34 @@ function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, 
                               onChange={ev => !uploadingPhotos && uploadPhotos(ev.target.files, e.id)} />
                           </div>
 
-                          {/* Caption editor */}
+                          {/* Essay reader */
+.reader-page { padding-top: var(--header-h); min-height: 100vh; }
+.reader-loading { padding-top: var(--header-h); min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
+.reader-header { max-width: var(--max-w); margin: 0 auto; padding: 28px var(--gutter) 0; display: flex; align-items: center; border-bottom: 1px solid var(--line-2); padding-bottom: 20px; }
+.reader-title-block { max-width: 760px; margin: 0 auto; padding: clamp(48px,8vh,96px) var(--gutter) clamp(40px,6vh,72px); }
+.reader-genre { font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+.reader-genre::before { content:""; display:block; width:20px; height:1px; background:var(--amber); }
+.reader-title { font-family: var(--f-serif); font-size: clamp(36px,6vw,72px); font-weight: 400; line-height: 1.06; letter-spacing: -.01em; margin-bottom: 20px; }
+.reader-byline { font-family: var(--f-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 32px; }
+.reader-statement { font-family: var(--f-body); font-size: clamp(17px,1.5vw,20px); font-style: italic; color: var(--ink-2); line-height: 1.7; padding-top: 28px; border-top: 1px solid var(--line-2); }
+.reader-photos { display: flex; flex-direction: column; }
+.reader-photo { border-top: 1px solid var(--line-2); }
+.reader-photo-img-wrap { max-width: 100%; overflow: hidden; }
+.reader-photo-img-wrap img { width: 100%; display: block; max-height: 92vh; object-fit: contain; background: var(--paper-2); }
+.reader-caption { max-width: 760px; margin: 0 auto; padding: 16px var(--gutter) 32px; }
+.reader-caption-meta { font-family: var(--f-mono); font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 6px; }
+.reader-caption-text { font-family: var(--f-body); font-size: 15px; font-style: italic; color: var(--ink-3); line-height: 1.6; }
+.reader-bio-block { border-top: 1px solid var(--line-2); margin-top: 48px; padding: clamp(40px,6vh,72px) var(--gutter); }
+.reader-bio-inner { max-width: 760px; margin: 0 auto; display: flex; gap: 24px; align-items: flex-start; }
+.reader-bio-avatar { width: 48px; height: 48px; border-radius: 50%; background: var(--paper-3); border: 1px solid var(--line-2); display: flex; align-items: center; justify-content: center; font-family: var(--f-serif); font-size: 18px; font-weight: 700; color: var(--ink-3); flex-shrink: 0; }
+.reader-bio-name { font-family: var(--f-serif); font-size: 18px; font-weight: 700; margin-bottom: 10px; }
+.reader-bio-text { font-family: var(--f-body); font-size: 16px; font-style: italic; color: var(--ink-3); line-height: 1.6; margin-bottom: 14px; }
+.reader-bio-links { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
+.reader-bio-meta { font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; color: var(--muted); }
+.card-img--empty { background: var(--paper-3); width: 100%; height: 100%; display: block; }
+.single-essay-row { border: 1px solid var(--line-2); }
+
+/* Caption editor */}
                           {editingCaption && (
                             <div className="caption-editor">
                               <p className="essay-edit-section-title">Caption for photo {essayPhotos.findIndex(p=>p.id===editingCaption)+1}</p>
@@ -1042,6 +1155,88 @@ function Field({ label, children }) {
     <div className="field">
       <label>{label}</label>
       {children}
+    </div>
+  );
+}
+
+function EssayReaderPage({ essay: essayData, loading, saved, onSave, onNav }) {
+  if (loading || !essayData) {
+    return (
+      <div className="reader-loading">
+        <p>Loading essay…</p>
+      </div>
+    );
+  }
+  const { essay, photos, photographer } = essayData;
+  const isSaved = saved.includes(essay.id);
+
+  return (
+    <div className="reader-page">
+      {/* Reader header */}
+      <div className="reader-header">
+        <button className="back-btn" onClick={()=>onNav("main")}>← All Essays</button>
+        <button className={`card-save${isSaved?" saved":""}`} onClick={()=>onSave(essay.id)} title={isSaved?"Saved":"Save essay"} style={{marginLeft:"auto"}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill={isSaved?"currentColor":"none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        </button>
+      </div>
+
+      {/* Essay title block */}
+      <div className="reader-title-block">
+        <p className="reader-genre">{essay.genre}</p>
+        <h1 className="reader-title">{essay.title}</h1>
+        <div className="reader-byline">
+          <span>{photographer?.name}</span>
+          {essay.published_at && <><span className="card-sep">·</span><span>{new Date(essay.published_at).toLocaleDateString("en-GB",{month:"long",year:"numeric"})}</span></>}
+          <span className="card-sep">·</span>
+          <span>{photos.length} photograph{photos.length!==1?"s":""}</span>
+        </div>
+        {essay.statement && (
+          <p className="reader-statement">{essay.statement}</p>
+        )}
+      </div>
+
+      {/* Photo sequence */}
+      <div className="reader-photos">
+        {photos.map((photo, idx) => (
+          <div className="reader-photo" key={photo.id}>
+            <div className="reader-photo-img-wrap">
+              <img src={photo.display_url || photo.storage_url} alt={photo.caption || ""} />
+            </div>
+            {(photo.location || photo.year || photo.caption) && (
+              <div className="reader-caption">
+                {(photo.location || photo.year) && (
+                  <span className="reader-caption-meta">
+                    {[photo.location, photo.year].filter(Boolean).join(", ")}
+                  </span>
+                )}
+                {photo.caption && <p className="reader-caption-text">{photo.caption}</p>}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Photographer bio */}
+      {photographer && (
+        <div className="reader-bio-block">
+          <div className="reader-bio-inner">
+            <div className="reader-bio-avatar">{(photographer.name||"?")[0].toUpperCase()}</div>
+            <div>
+              <p className="reader-bio-name">{photographer.name}</p>
+              {photographer.bio && <p className="reader-bio-text">{photographer.bio}</p>}
+              <div className="reader-bio-links">
+                {photographer.website && <a href={photographer.website} target="_blank" rel="noreferrer" className="static-link">{photographer.website}</a>}
+                {photographer.instagram && <span className="reader-bio-meta">{photographer.instagram}</span>}
+                {photographer.lineage_node_id && (
+                  <a href={`https://lineage-two.vercel.app/?node=${photographer.lineage_node_id}`} target="_blank" rel="noreferrer" className="static-link">View on Lineage →</a>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{height:80}}/>
     </div>
   );
 }
@@ -1474,6 +1669,33 @@ footer { border-top: 1px solid var(--line-2); padding: 32px var(--gutter); margi
 .archive-empty { padding: clamp(64px,10vh,120px) 0; text-align: center; border: 1px solid var(--line-2); }
 .archive-empty-title { font-family: var(--f-serif); font-size: clamp(20px,2.5vw,28px); font-weight: 400; color: var(--ink); margin-bottom: 16px; }
 .archive-empty-sub { font-family: var(--f-body); font-size: clamp(15px,1.3vw,18px); font-style: italic; color: var(--ink-2); max-width: 440px; margin: 0 auto; line-height: 1.6; }
+
+/* Essay reader */
+.reader-page { padding-top: var(--header-h); min-height: 100vh; }
+.reader-loading { padding-top: var(--header-h); min-height: 100vh; display: flex; align-items: center; justify-content: center; font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
+.reader-header { max-width: var(--max-w); margin: 0 auto; padding: 28px var(--gutter) 0; display: flex; align-items: center; border-bottom: 1px solid var(--line-2); padding-bottom: 20px; }
+.reader-title-block { max-width: 760px; margin: 0 auto; padding: clamp(48px,8vh,96px) var(--gutter) clamp(40px,6vh,72px); }
+.reader-genre { font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+.reader-genre::before { content:""; display:block; width:20px; height:1px; background:var(--amber); }
+.reader-title { font-family: var(--f-serif); font-size: clamp(36px,6vw,72px); font-weight: 400; line-height: 1.06; letter-spacing: -.01em; margin-bottom: 20px; }
+.reader-byline { font-family: var(--f-mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 32px; }
+.reader-statement { font-family: var(--f-body); font-size: clamp(17px,1.5vw,20px); font-style: italic; color: var(--ink-2); line-height: 1.7; padding-top: 28px; border-top: 1px solid var(--line-2); }
+.reader-photos { display: flex; flex-direction: column; }
+.reader-photo { border-top: 1px solid var(--line-2); }
+.reader-photo-img-wrap { max-width: 100%; overflow: hidden; }
+.reader-photo-img-wrap img { width: 100%; display: block; max-height: 92vh; object-fit: contain; background: var(--paper-2); }
+.reader-caption { max-width: 760px; margin: 0 auto; padding: 16px var(--gutter) 32px; }
+.reader-caption-meta { font-family: var(--f-mono); font-size: 9px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); display: block; margin-bottom: 6px; }
+.reader-caption-text { font-family: var(--f-body); font-size: 15px; font-style: italic; color: var(--ink-3); line-height: 1.6; }
+.reader-bio-block { border-top: 1px solid var(--line-2); margin-top: 48px; padding: clamp(40px,6vh,72px) var(--gutter); }
+.reader-bio-inner { max-width: 760px; margin: 0 auto; display: flex; gap: 24px; align-items: flex-start; }
+.reader-bio-avatar { width: 48px; height: 48px; border-radius: 50%; background: var(--paper-3); border: 1px solid var(--line-2); display: flex; align-items: center; justify-content: center; font-family: var(--f-serif); font-size: 18px; font-weight: 700; color: var(--ink-3); flex-shrink: 0; }
+.reader-bio-name { font-family: var(--f-serif); font-size: 18px; font-weight: 700; margin-bottom: 10px; }
+.reader-bio-text { font-family: var(--f-body); font-size: 16px; font-style: italic; color: var(--ink-3); line-height: 1.6; margin-bottom: 14px; }
+.reader-bio-links { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; }
+.reader-bio-meta { font-family: var(--f-mono); font-size: 9px; letter-spacing: .12em; color: var(--muted); }
+.card-img--empty { background: var(--paper-3); width: 100%; height: 100%; display: block; }
+.single-essay-row { border: 1px solid var(--line-2); }
 
 /* Caption editor */
 .caption-editor { background: var(--paper-2); border: 1px solid var(--line-2); padding: 20px; margin-bottom: 20px; }
