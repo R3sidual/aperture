@@ -76,6 +76,7 @@ export default function App() {
         website: data.website || "",
         instagram: data.instagram || "",
         lineage_node_id: data.lineage_node_id || "",
+      influences: data.influences || "",
       });
       fetchSaved(u.id);
       fetchSubmissions(u.id);
@@ -167,7 +168,7 @@ export default function App() {
     const name = [editForm.first, editForm.last].filter(Boolean).join(" ");
     const { data, error } = await supabase
       .from("users")
-      .update({ name, bio: editForm.bio, website: editForm.website, instagram: editForm.instagram, lineage_node_id: editForm.lineage_node_id })
+      .update({ name, bio: editForm.bio, website: editForm.website, instagram: editForm.instagram, lineage_node_id: editForm.lineage_node_id, influences: editForm.influences })
       .eq("id", user.id)
       .select()
       .single();
@@ -280,7 +281,7 @@ export default function App() {
   const openSubmit = () => {
     if (!user) { setAuthModal(true); return; }
     setSubmitStep(1); setSubmitDone(false);
-    setSubmitForm({ name: profile?.name || "", bio: profile?.bio || "", influences: profile?.influences || "", title:"", genre:"", statement:"", fileCount:0 });
+    setSubmitForm({ name: profile?.name || "", bio: profile?.bio || "", title:"", genre:"", statement:"", fileCount:0 });
     setSubmitModal(true);
   };
 
@@ -386,10 +387,7 @@ export default function App() {
               <h3 className="step-title">Your Profile</h3>
               <Field label="Full Name"><input value={submitForm.name} onChange={e=>setSubmitForm(f=>({...f,name:e.target.value}))} placeholder="Maria Solís" /></Field>
               <Field label="Short Bio"><textarea rows={3} value={submitForm.bio} onChange={e=>setSubmitForm(f=>({...f,bio:e.target.value}))} placeholder="Documentary photographer based in Lisbon…" /></Field>
-              <Field label={<>Key Influences <span className="field-note">Seeds your Lineage node →</span></>}>
-                <input value={submitForm.influences} onChange={e=>setSubmitForm(f=>({...f,influences:e.target.value}))} placeholder="e.g. Sebastião Salgado, Dorothea Lange" />
-                {submitForm.bio === "" && <p style={{fontFamily:"var(--f-mono)",fontSize:9,letterSpacing:".12em",color:"var(--muted)",marginTop:6}}>Update your bio in Edit Profile to pre-fill this form.</p>}
-              </Field>
+
               <button className="btn-primary" onClick={()=>setSubmitStep(2)}>Continue</button>
             </>}
             {submitStep===2 && <>
@@ -422,7 +420,7 @@ export default function App() {
             </>}
             {submitStep===4 && <>
               <h3 className="step-title">Review & Submit</h3>
-              {[["Name",submitForm.name],["Title",submitForm.title],["Genre",submitForm.genre],["Influences",submitForm.influences],["Photos",submitForm.fileCount+" selected"]].map(([k,v])=>(
+              {[["Name",submitForm.name],["Title",submitForm.title],["Genre",submitForm.genre],["Photos",submitForm.fileCount+" selected"]].map(([k,v])=>(
                 <div className="review-row" key={k}>
                   <span className="review-key">{k}</span>
                   <span className="review-val">{v||"—"}</span>
@@ -456,22 +454,15 @@ function MainPage({ essays, saved, onSave, onSubmit, onNav }) {
       <section className="hero">
         <div className="hero-inner">
           <div className="hero-left">
-            <p className="hero-kicker">Now Open — Issue 01</p>
-            <h1 className="hero-title">A home for<br /><em>the essay.</em></h1>
-            <p className="hero-desc">Aperture is an editorial journal for long-form photo essays. Submissions are open. The first essays are coming.</p>
+            <p className="hero-kicker">Issue 01 — Now Open</p>
+            <h1 className="hero-title">Long-form<br /><em>photography,</em><br />taken seriously.</h1>
+            <p className="hero-desc">Aperture publishes photo essays — sequences of images made with intention. We're open for submissions and reading everything that comes in.</p>
             <div className="hero-actions">
-              <a href="#" className="btn-read"><span className="btn-read-rule"/>{" "}Read the Essay</a>
-              <span className="hero-byline">Submit your work — we read everything.</span>
+              <button className="btn-read" onClick={onSubmit}><span className="btn-read-rule"/>{" "}Submit Your Work</button>
+              <a href="#" className="btn-read" style={{opacity:.6}} onClick={e=>{e.preventDefault();onNav("guidelines");}}><span className="btn-read-rule"/>Read the Guidelines</a>
             </div>
           </div>
-          <div className="hero-right">
-            <div className="hero-img-wrap">
-              <img src="https://images.unsplash.com/photo-1452587925148-ce544e77e70d?w=900&q=80" alt="" />
-            </div>
-            <div className="hero-img-caption">
-              <span>Aperture Journal</span><span>Issue 01, 2026</span>
-            </div>
-          </div>
+
         </div>
         <div className="hero-stats">
           <div className="hero-stats-inner">
@@ -712,7 +703,10 @@ function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, 
               <Field label="Instagram"><input value={editForm.instagram} onChange={e=>setEditForm(f=>({...f,instagram:e.target.value}))} placeholder="@handle" /></Field>
             </div>
             <Field label={<>Lineage Node ID <span className="field-note">Links your profile to the graph</span></>}>
-              <input value={editForm.lineage_node_id} onChange={e=>setEditForm(f=>({...f,lineage_node_id:e.target.value}))} placeholder="e.g. maria-solis" />
+              <input value={editForm.lineage_node_id} onChange={e=>setEditForm(f=>({...f,lineage_node_id:e.target.value}))} placeholder="e.g. henri-cartier-bresson" />
+            </Field>
+            <Field label={<>Influences <span className="field-note">Photographers who shaped your work — matched against Lineage</span></>}>
+              <InfluenceInput value={editForm.influences || ""} onChange={v=>setEditForm(f=>({...f,influences:v}))} />
             </Field>
             <button className="btn-primary" style={{maxWidth:200}} onClick={saveProfile} disabled={savingProfile}>
               {savingProfile ? "Saving…" : "Save Changes"}
@@ -920,6 +914,67 @@ function Field({ label, children }) {
   );
 }
 
+function InfluenceInput({ value, onChange }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const tags = value ? value.split(",").map(t => t.trim()).filter(Boolean) : [];
+
+  const search = async (q) => {
+    setQuery(q);
+    if (q.length < 2) { setResults([]); return; }
+    setLoading(true);
+    const { data } = await supabase
+      .from("photographers")
+      .select("id, name")
+      .ilike("name", `%${q}%`)
+      .limit(6);
+    setResults(data || []);
+    setLoading(false);
+  };
+
+  const add = (name) => {
+    if (!tags.includes(name)) onChange([...tags, name].join(", "));
+    setQuery(""); setResults([]);
+  };
+
+  const remove = (tag) => onChange(tags.filter(t => t !== tag).join(", "));
+
+  return (
+    <div className="influence-input">
+      {tags.length > 0 && (
+        <div className="influence-tags">
+          {tags.map(t => (
+            <span className="influence-tag" key={t}>
+              {t}
+              <button onClick={() => remove(t)}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="influence-search-wrap">
+        <input
+          value={query}
+          onChange={e => search(e.target.value)}
+          placeholder="Search photographers in Lineage…"
+          className="influence-search"
+        />
+        {loading && <span className="influence-loading">…</span>}
+      </div>
+      {results.length > 0 && (
+        <div className="influence-dropdown">
+          {results.map(p => (
+            <button key={p.id} className="influence-option" onClick={() => add(p.name)}>
+              <span className="influence-option-name">{p.name}</span>
+              <span className="influence-option-id">{p.id}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Footer({ onNav }) {
   return (
     <footer>
@@ -984,8 +1039,8 @@ header { position: fixed; top: 0; left: 0; right: 0; height: var(--header-h); z-
 /* Hero */
 .main-page { padding-top: var(--header-h); }
 .hero { border-bottom: 1px solid var(--line-2); }
-.hero-inner { max-width: var(--max-w); margin: 0 auto; padding: clamp(64px,10vh,120px) var(--gutter) 0; display: grid; grid-template-columns: 1fr 1fr; gap: clamp(40px,6vw,96px); align-items: end; }
-.hero-left { padding-bottom: clamp(40px,6vh,72px); }
+.hero-inner { max-width: var(--max-w); margin: 0 auto; padding: clamp(64px,10vh,120px) var(--gutter) 0; display: grid; grid-template-columns: 1fr; align-items: end; }
+.hero-left { padding-bottom: clamp(40px,6vh,72px); max-width: 680px; }
 .hero-kicker { font-family: var(--f-mono); font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); margin-bottom: 28px; display: flex; align-items: center; gap: 10px; }
 .hero-kicker::before { content:""; display:block; width:24px; height:1px; background:var(--amber); }
 .hero-title { font-family: var(--f-serif); font-size: clamp(40px,6vw,82px); font-weight: 400; line-height: 1.08; letter-spacing: -.01em; }
@@ -1209,6 +1264,23 @@ footer { border-top: 1px solid var(--line-2); padding: 32px var(--gutter); margi
 .archive-empty { padding: clamp(64px,10vh,120px) 0; text-align: center; border: 1px solid var(--line-2); }
 .archive-empty-title { font-family: var(--f-serif); font-size: clamp(20px,2.5vw,28px); font-weight: 400; color: var(--ink); margin-bottom: 16px; }
 .archive-empty-sub { font-family: var(--f-body); font-size: clamp(15px,1.3vw,18px); font-style: italic; color: var(--ink-3); max-width: 440px; margin: 0 auto; line-height: 1.6; }
+
+/* Influence input */
+.influence-input { position: relative; }
+.influence-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.influence-tag { font-family: var(--f-mono); font-size: 9px; letter-spacing: .1em; background: var(--paper-3); border: 1px solid var(--line-2); padding: 4px 8px; display: flex; align-items: center; gap: 6px; color: var(--ink-3); }
+.influence-tag button { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 13px; line-height: 1; padding: 0; transition: color .2s; }
+.influence-tag button:hover { color: #b5441a; }
+.influence-search-wrap { position: relative; }
+.influence-search { width: 100%; background: var(--paper-2); border: 1px solid var(--line-2); padding: 11px 14px; font-family: var(--f-body); font-size: 16px; color: var(--ink); outline: none; transition: border-color .2s; }
+.influence-search:focus { border-color: var(--amber); }
+.influence-loading { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-family: var(--f-mono); font-size: 10px; color: var(--muted); }
+.influence-dropdown { position: absolute; left: 0; right: 0; background: var(--paper); border: 1px solid var(--line-2); border-top: none; z-index: 100; max-height: 220px; overflow-y: auto; }
+.influence-option { width: 100%; background: none; border: none; border-bottom: 1px solid var(--line); padding: 10px 14px; cursor: pointer; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; text-align: left; transition: background .15s; }
+.influence-option:last-child { border-bottom: none; }
+.influence-option:hover { background: var(--paper-2); }
+.influence-option-name { font-family: var(--f-body); font-size: 16px; color: var(--ink); }
+.influence-option-id { font-family: var(--f-mono); font-size: 9px; letter-spacing: .1em; color: var(--muted); }
 
 /* Responsive */
 @media (max-width: 960px) {
