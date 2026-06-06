@@ -223,10 +223,10 @@ export default function App() {
   };
 
   const setCover = async (photo) => {
-    // Unset all covers for this essay, then set this one
     await supabase.from("photos").update({ is_cover: false }).eq("essay_id", photo.essay_id);
     await supabase.from("photos").update({ is_cover: true }).eq("id", photo.id);
     setEssayPhotos(p => p.map(x => ({ ...x, is_cover: x.id === photo.id })));
+    if (user) fetchSubmissions(user.id);
   };
 
   const movePhoto = async (photo, direction) => {
@@ -588,7 +588,7 @@ function ProfilePage({ user, profile, saved, essays, submissions, editingEssay, 
                       <div className="essay-edit-panel" key={e.id}>
                         <div className="essay-edit-header">
                           <p className="essay-edit-label">Editing: {e.title}</p>
-                          <button className="btn-edit-close" onClick={()=>setEditingEssay(null)}>← Done</button>
+                          <button className="btn-edit-close" onClick={()=>{ setEditingEssay(null); if(user) fetchSubmissions(user.id); }}>← Done</button>
                         </div>
 
                         {/* Essay details */}
