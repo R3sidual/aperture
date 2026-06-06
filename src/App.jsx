@@ -1424,7 +1424,6 @@ const CSS = `
   --header-h:58px;
 }
 
-@import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=EB+Garamond:ital,wght@0,400;0,500;1,400;1,500&family=Courier+Prime:ital,wght@0,400;1,400&display=swap');
 
 html { scroll-behavior: smooth; color-scheme: light; }
 body { background: var(--paper); color: var(--ink); font-family: var(--f-body); font-size: 18px; line-height: 1.6; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
